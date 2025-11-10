@@ -1,0 +1,77 @@
+# Flight Data Service Configuration
+# Source: ARCHITECTURE.md, PRD.md, API-SPEC.yml
+
+server:
+  port: 8081
+
+spring:
+  application:
+    name: FLIGHTDATA-SERVICE
+
+  # Redis Configuration (for caching)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+
+  # Cache Configuration
+  cache:
+    type: redis
+    redis:
+      time-to-live: 300000 # 5 minutes in milliseconds (PRD requirement)
+      cache-null-values: false
+
+  # Kafka Configuration (for event publishing)
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+    properties:
+      spring.json.add.type.headers: false
+
+# FlightAware API Configuration
+flightaware:
+  base-url: ${FLIGHTAWARE_BASE_URL:https://aeroapi.flightaware.com/aeroapi}
+  api-key: ${FLIGHTAWARE_API_KEY:your_api_key_here}
+
+# Kafka Topics
+kafka:
+  topic:
+    flight-data-events: ${KAFKA_TOPIC_FLIGHT_DATA:flight-data-events}
+
+# Eureka Client Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_DEFAULT_ZONE:http://localhost:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 30
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,caches
+  endpoint:
+    health:
+      show-details: always
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.airlinetracker.flightdata: DEBUG
+    org.springframework.cache: DEBUG
+    org.springframework.kafka: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+

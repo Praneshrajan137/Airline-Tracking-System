@@ -1,0 +1,72 @@
+# API Gateway Configuration
+# Source: ARCHITECTURE.md, API-SPEC.yml
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        # Route 1: LLM Summary Service (More specific route must come first)
+        # Handles: GET /api/v1/flight/{ident}/summary
+        - id: llm-summary-service-route
+          uri: lb://LLM-SUMMARY-SERVICE
+          predicates:
+            - Path=/api/v1/flight/*/summary
+
+        # Route 2: Flight Data Service (More general route comes second)
+        # Handles: GET /api/v1/flight/{ident}
+        - id: flightdata-service-route
+          uri: lb://FLIGHTDATA-SERVICE
+          predicates:
+            - Path=/api/v1/flight/*
+
+      # Global CORS configuration
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOrigins: "http://localhost:3000,http://localhost:8080"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+
+# Eureka Client Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+    lease-renewal-interval-in-seconds: 30
+
+# Actuator endpoints for health checks
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,gateway
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    org.springframework.cloud.gateway: DEBUG
+    com.netflix.discovery: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+

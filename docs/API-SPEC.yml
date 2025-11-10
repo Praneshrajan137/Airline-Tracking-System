@@ -1,0 +1,126 @@
+openapi: 3.0.0
+info:
+  title: Airline Tracking API
+  version: "1.0.0"
+  description: Real-time flight tracking with AI-powered summaries
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+paths:
+  /api/v1/flight/{ident}:
+    get:
+      summary: Get real-time flight status by flight number
+      operationId: getFlightDataByIdent
+      parameters:
+        - name: ident
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "UAL123"
+      responses:
+        '200':
+          description: Successful response with flight data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightData'
+        '404':
+          description: Flight not found
+        '500':
+          description: Internal server error
+
+  /api/v1/flight/{ident}/summary:
+    get:
+      summary: Get LLM-generated natural-language summary
+      operationId: getFlightSummaryByIdent
+      parameters:
+        - name: ident
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "UAL123"
+      responses:
+        '200':
+          description: Successful response with flight summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightSummary'
+        '404':
+          description: Summary not yet generated or flight not found
+
+components:
+  schemas:
+    FlightData:
+      type: object
+      description: Core flight data from FlightAware AeroAPI
+      required:
+        - fa_flight_id
+        - ident
+        - status
+      properties:
+        fa_flight_id:
+          type: string
+          example: "UAL123-1678886400-airline-0123"
+        ident:
+          type: string
+          example: "UAL123"
+        status:
+          type: string
+          example: "En-Route / In Flight"
+        scheduled_out:
+          type: string
+          format: date-time
+        actual_out:
+          type: string
+          format: date-time
+          nullable: true
+        scheduled_in:
+          type: string
+          format: date-time
+        actual_in:
+          type: string
+          format: date-time
+          nullable: true
+        origin:
+          type: string
+          example: "KORD"
+        destination:
+          type: string
+          example: "KLAX"
+        aircraft_type:
+          type: string
+          example: "B738"
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        altitude:
+          type: integer
+        groundspeed:
+          type: integer
+
+    FlightSummary:
+      type: object
+      description: AI-generated summary of a flight
+      required:
+        - ident
+        - summary_text
+        - generated_at
+      properties:
+        ident:
+          type: string
+          example: "UAL123"
+        summary_text:
+          type: string
+          example: "United Flight 123 (UAL123) is currently En Route from Chicago (KORD) to Los Angeles (KLAX)."
+        generated_at:
+          type: string
+          format: date-time
+

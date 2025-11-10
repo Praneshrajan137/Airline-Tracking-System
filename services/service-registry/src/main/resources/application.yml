@@ -1,0 +1,45 @@
+# Service Registry Configuration
+# Source: ARCHITECTURE.md
+
+server:
+  port: 8761
+
+spring:
+  application:
+    name: service-registry
+
+eureka:
+  instance:
+    hostname: localhost
+  client:
+    # Don't register this Eureka server with itself
+    register-with-eureka: false
+    # Don't fetch registry from itself
+    fetch-registry: false
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  server:
+    # Disable self-preservation mode in development
+    enable-self-preservation: false
+    # Evict instances faster in development
+    eviction-interval-timer-in-ms: 5000
+
+# Actuator endpoints for health checks
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    com.netflix.eureka: INFO
+    com.netflix.discovery: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+

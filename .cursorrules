@@ -1,0 +1,214 @@
+# CURSOR AI RULES FOR AIRLINE TRACKER PROJECT
+
+## CRITICAL CONTEXT LOADING
+
+Before EVERY response, you MUST read these files in order:
+
+1. docs/PRD.md - Product Requirements Document
+
+2. docs/ARCHITECTURE.md - System Architecture
+
+3. docs/DECISIONS.md - Technology Decisions
+
+4. docs/API-SPEC.yml - API Specifications
+
+## ABSOLUTE RULES (NEVER VIOLATE)
+
+### Rule 1: STRICT ADHERENCE TO DOCUMENTATION
+
+- Base ALL code on the documents above
+
+- If documentation is unclear, ASK before generating code
+
+- NEVER introduce technologies not defined in DECISIONS.md
+
+- NEVER deviate from API-SPEC.yml contracts
+
+### Rule 2: MANDATORY TEST-DRIVEN DEVELOPMENT (TDD)
+
+For EVERY feature implementation:
+
+1. FIRST: Write a failing test that defines the requirement
+
+2. SECOND: Write MINIMUM code to pass that exact test
+
+3. THIRD: Refactor while keeping tests green
+
+- NO code without a test
+
+- NO test modifications unless explicitly requested
+
+### Rule 3: AI SELF-REVIEW CHECKLIST
+
+Before presenting ANY code, verify:
+
+✓ Correctness: Does it fulfill the PRD requirement?
+
+✓ Security: Are inputs validated? Secrets in environment variables?
+
+✓ Clean Code: Follows SOLID principles? Clear names? No magic numbers?
+
+✓ Test Coverage: Does the test actually validate the requirement?
+
+### Rule 4: CONTEXT ISOLATION
+
+- One feature = One chat session
+
+- Use /clear command liberally (every 15-20 messages)
+
+### Rule 5: RESPONSE FORMAT
+
+ALWAYS structure responses as:
+
+```
+### Task: [Concise description]
+
+### Source: [PRD section or API-SPEC reference]
+
+### Test First: [Show the failing test]
+
+### Implementation: [Minimal code to pass test]
+
+### Verification: [How to confirm it works]
+```
+
+## CODING STANDARDS
+
+### Java/Spring Boot
+
+- Use Spring Boot 3.x
+
+- Dependency Injection via constructors
+
+- @Service, @Repository, @RestController annotations
+
+- Exception handling with @ControllerAdvice
+
+- Validation with @Valid and Bean Validation
+
+### Naming Conventions
+
+- Classes: PascalCase (e.g., FlightDataService)
+
+- Methods: camelCase (e.g., getFlightByIdent)
+
+- Constants: UPPER_SNAKE_CASE (e.g., MAX_RETRY_ATTEMPTS)
+
+- Packages: lowercase.dot.separated
+
+### Error Handling
+
+- Use try-catch blocks strategically
+
+- Return appropriate HTTP status codes (404, 400, 500)
+
+- Provide meaningful error messages (no sensitive data)
+
+- Log errors with context
+
+### Performance
+
+- Cache external API calls (Redis)
+
+- Paginate large datasets
+
+- Use async processing where appropriate (Kafka)
+
+## FORBIDDEN PRACTICES
+
+- NO localStorage or sessionStorage in artifacts
+
+- NO hardcoded credentials or API keys
+
+- NO magic numbers or strings
+
+- NO broad try-catch blocks without specific handling
+
+- NO code comments explaining WHAT (code should be self-documenting)
+
+- Comments only for WHY
+
+## PROJECT-SPECIFIC CONTEXT
+
+### Technology Stack
+
+- Java 17 + Spring Boot 3.x
+
+- Spring Cloud (Eureka, Gateway)
+
+- PostgreSQL (persistence)
+
+- Redis (caching)
+
+- Apache Kafka (async messaging)
+
+- FlightAware AeroAPI (flight data)
+
+- OpenAI API (LLM summaries)
+
+### Microservices Architecture
+
+1. service-registry (Eureka) - Port 8761
+
+2. api-gateway (Spring Cloud Gateway) - Port 8080
+
+3. flightdata-service - Port 8081
+
+4. llm-summary-service - Port 8082
+
+### Current Sprint Context
+
+[UPDATED: 2025-11-10]
+
+- Phase: Phase 4 - Implementation (Day 9-15)
+
+- Feature: Building microservices
+
+- Progress: 40% (2 of 4 services complete)
+
+- Completed:
+  - ✅ service-registry (Eureka Server)
+  - ✅ api-gateway (Spring Cloud Gateway)
+
+- Next: flightdata-service
+
+- Blockers: None
+
+## SECURITY REQUIREMENTS
+
+- All API keys in environment variables
+
+- Input validation on ALL endpoints
+
+- SQL injection prevention (use parameterized queries)
+
+- Rate limiting on API Gateway
+
+- CORS configured properly
+
+## PERFORMANCE TARGETS
+
+- GET /flight/{ident} < 500ms (with cache)
+
+- GET /flight/{ident}/summary < 2000ms
+
+- Cache TTL: 5 minutes
+
+- Rate limit: 100 requests/minute per user
+
+## CRITICAL REMINDERS FOR AI
+
+1. Always load MCP (docs/MCP.md) at start of new chat
+
+2. Follow TDD strictly: RED → GREEN → REFACTOR
+
+3. Ask for clarification if requirements are ambiguous
+
+4. Cite PRD sections when implementing features
+
+5. Perform self-review before presenting code
+
+6. Keep functions under 20 lines
+
+7. No external knowledge - only use project documents
+
