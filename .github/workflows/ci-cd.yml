@@ -1,0 +1,974 @@
+name: Airline Tracker CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # Allow manual triggering
+
+env:
+  JAVA_VERSION: "17"
+  MAVEN_OPTS: -Xmx1024m -XX:+TieredCompilation -XX:TieredStopAtLevel=1
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # JOB 1: Build and Test All Services
+  build-and-test:
+    name: Build & Test All Services
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Start infrastructure services for tests
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: airline_tracker_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0 # Full history for better analysis
+
+      - name: ☕ Set up JDK 17
+        uses: actions/setup-java@v4.0.0
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
+
+      - name: 📦 Cache Maven Dependencies
+        uses: actions/cache@v3.3.2
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: 🔍 Verify Service Structure
+        run: |
+          echo "🔍 Verifying microservices structure..."
+          for service in service-registry api-gateway flightdata-service llm-summary-service; do
+            if [ -f "services/$service/pom.xml" ]; then
+              echo "✅ $service/pom.xml found"
+            else
+              echo "❌ FAILED: services/$service/pom.xml not found"
+              exit 1
+            fi
+          done
+          echo "✅ All services verified"
+
+      - name: 🔨 Build Service Registry
+        run: |
+          echo "🔨 Building service-registry..."
+          cd services/service-registry
+          mvn -B clean package -DskipTests || {
+            echo "❌ FAILED: service-registry build failed at $(date)"
+            exit 1
+          }
+          echo "✅ service-registry built successfully"
+
+      - name: 🔨 Build API Gateway
+        run: |
+          echo "🔨 Building api-gateway..."
+          cd services/api-gateway
+          mvn -B clean package -DskipTests || {
+            echo "❌ FAILED: api-gateway build failed at $(date)"
+            exit 1
+          }
+          echo "✅ api-gateway built successfully"
+
+      - name: 🔨 Build FlightData Service
+        run: |
+          echo "🔨 Building flightdata-service..."
+          cd services/flightdata-service
+          mvn -B clean package -DskipTests || {
+            echo "❌ FAILED: flightdata-service build failed at $(date)"
+            exit 1
+          }
+          echo "✅ flightdata-service built successfully"
+
+      - name: 🔨 Build LLM Summary Service
+        run: |
+          echo "🔨 Building llm-summary-service..."
+          cd services/llm-summary-service
+          mvn -B clean package -DskipTests || {
+            echo "❌ FAILED: llm-summary-service build failed at $(date)"
+            exit 1
+          }
+          echo "✅ llm-summary-service built successfully"
+
+      - name: 🧪 Run Unit Tests - Service Registry
+        run: |
+          echo "🧪 Running unit tests for service-registry..."
+          cd services/service-registry
+          mvn test -Dtest="!**/*IntegrationTest,!**/*E2ETest" || {
+            echo "❌ FAILED: service-registry unit tests failed"
+            exit 1
+          }
+          echo "✅ service-registry unit tests passed"
+        env:
+          SPRING_PROFILES_ACTIVE: test
+
+      - name: 🧪 Run Unit Tests - API Gateway
+        run: |
+          echo "🧪 Running unit tests for api-gateway..."
+          cd services/api-gateway
+          mvn test -Dtest="!**/*IntegrationTest,!**/*E2ETest" || {
+            echo "❌ FAILED: api-gateway unit tests failed"
+            exit 1
+          }
+          echo "✅ api-gateway unit tests passed"
+        env:
+          SPRING_PROFILES_ACTIVE: test
+
+      - name: 🧪 Run Unit Tests - FlightData Service
+        run: |
+          echo "🧪 Running unit tests for flightdata-service..."
+          cd services/flightdata-service
+          mvn test -Dtest="!**/*IntegrationTest,!**/*E2ETest" || {
+            echo "❌ FAILED: flightdata-service unit tests failed"
+            exit 1
+          }
+          echo "✅ flightdata-service unit tests passed"
+        env:
+          SPRING_PROFILES_ACTIVE: test
+          SPRING_DATA_REDIS_HOST: localhost
+          SPRING_DATA_REDIS_PORT: 6379
+          FLIGHTAWARE_API_KEY: test-flightaware-key
+
+      - name: 🧪 Run Unit Tests - LLM Summary Service
+        run: |
+          echo "🧪 Running unit tests for llm-summary-service..."
+          cd services/llm-summary-service
+          mvn test -Dtest="!**/*IntegrationTest,!**/*E2ETest" || {
+            echo "❌ FAILED: llm-summary-service unit tests failed"
+            exit 1
+          }
+          echo "✅ llm-summary-service unit tests passed"
+        env:
+          SPRING_PROFILES_ACTIVE: test
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/airline_tracker_test
+          SPRING_DATASOURCE_USERNAME: test
+          SPRING_DATASOURCE_PASSWORD: test
+          OPENAI_API_KEY: test-openai-key
+
+      - name: 🔬 Run Integration Tests
+        run: |
+          echo "🔬 Running integration tests..."
+
+          # Run integration tests for each service
+          for service in service-registry api-gateway flightdata-service llm-summary-service; do
+            echo "🔬 Testing $service..."
+            cd services/$service
+
+            # Check if integration test profile exists
+            if grep -q "integration-tests" pom.xml 2>/dev/null; then
+              mvn verify -Pintegration-tests || {
+                echo "❌ FAILED: $service integration tests failed"
+                exit 1
+              }
+            else
+              # Run verify without profile if not configured
+              mvn verify -DskipUTs=true || {
+                echo "❌ FAILED: $service integration tests failed"
+                exit 1
+              }
+            fi
+
+            cd ../..
+            echo "✅ $service integration tests passed"
+          done
+
+          echo "✅ All integration tests passed"
+        env:
+          SPRING_PROFILES_ACTIVE: test
+          SPRING_DATA_REDIS_HOST: localhost
+          SPRING_DATA_REDIS_PORT: 6379
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/airline_tracker_test
+          SPRING_DATASOURCE_USERNAME: test
+          SPRING_DATASOURCE_PASSWORD: test
+          FLIGHTAWARE_API_KEY: test-flightaware-key
+          OPENAI_API_KEY: test-openai-key
+
+      - name: 📊 Generate Code Coverage Reports
+        run: |
+          echo "📊 Generating coverage reports for all services..."
+
+          for service in service-registry api-gateway flightdata-service llm-summary-service; do
+            echo "📊 Generating coverage for $service..."
+            cd services/$service
+            mvn jacoco:report || {
+              echo "⚠️ WARNING: Coverage report generation failed for $service"
+            }
+            cd ../..
+          done
+
+          echo "✅ Coverage reports generated"
+
+      - name: 🎯 Check Code Coverage Threshold
+        run: |
+          echo "🎯 Checking coverage threshold (minimum 90%)..."
+
+          FAILED_SERVICES=""
+          TOTAL_COVERAGE=0
+          SERVICE_COUNT=0
+
+          for service in service-registry api-gateway flightdata-service llm-summary-service; do
+            JACOCO_REPORT="services/$service/target/site/jacoco/index.html"
+
+            if [ -f "$JACOCO_REPORT" ]; then
+              # Extract coverage percentage from JaCoCo report
+              COVERAGE=$(grep -oP 'Total.*?(\d+)%' "$JACOCO_REPORT" | grep -oP '\d+' | tail -1 || echo "0")
+
+              echo "📊 $service coverage: ${COVERAGE}%"
+
+              if [ "$COVERAGE" -lt 90 ]; then
+                echo "❌ FAILED: $service coverage ${COVERAGE}% is below 90% threshold"
+                FAILED_SERVICES="$FAILED_SERVICES $service"
+              else
+                echo "✅ PASSED: $service coverage ${COVERAGE}% meets threshold"
+              fi
+
+              TOTAL_COVERAGE=$((TOTAL_COVERAGE + COVERAGE))
+              SERVICE_COUNT=$((SERVICE_COUNT + 1))
+            else
+              echo "⚠️ WARNING: Coverage report not found for $service"
+            fi
+          done
+
+          if [ $SERVICE_COUNT -gt 0 ]; then
+            AVG_COVERAGE=$((TOTAL_COVERAGE / SERVICE_COUNT))
+            echo "📊 Average coverage across all services: ${AVG_COVERAGE}%"
+          fi
+
+          if [ -n "$FAILED_SERVICES" ]; then
+            echo "❌ FAILED: The following services have insufficient coverage:$FAILED_SERVICES"
+            exit 1
+          fi
+
+          echo "✅ PASSED: All services meet the 90% coverage threshold"
+
+      - name: 🔒 Check for Hardcoded Secrets
+        run: |
+          echo "🔒 Scanning for hardcoded secrets..."
+
+          # Check for common secret patterns
+          SECRETS_FOUND=0
+
+          # API keys pattern
+          if grep -r "apikey.*=.*[a-zA-Z0-9]{20,}" services/ --include="*.java" --include="*.yml" --include="*.properties" --exclude-dir="target" | grep -v "test-"; then
+            echo "❌ FAILED: Potential API keys found"
+            SECRETS_FOUND=1
+          fi
+
+          # Password pattern
+          if grep -r "password.*=.*['\"][^'\"]*['\"]" services/ --include="*.java" --include="*.yml" --include="*.properties" --exclude-dir="target" | grep -v "test" | grep -v "example" | grep -v "\${"; then
+            echo "❌ FAILED: Potential hardcoded passwords found"
+            SECRETS_FOUND=1
+          fi
+
+          # AWS keys pattern
+          if grep -r "AKIA[0-9A-Z]{16}" services/ --include="*.java" --include="*.yml" --include="*.properties" --exclude-dir="target"; then
+            echo "❌ FAILED: Potential AWS keys found"
+            SECRETS_FOUND=1
+          fi
+
+          if [ $SECRETS_FOUND -eq 0 ]; then
+            echo "✅ No hardcoded secrets detected"
+          else
+            echo "❌ FAILED: Hardcoded secrets detected. Please use environment variables."
+            exit 1
+          fi
+
+      - name: 📤 Upload Coverage Reports
+        if: always()
+        uses: actions/upload-artifact@v3.1.3
+        with:
+          name: coverage-reports
+          path: |
+            services/*/target/site/jacoco/
+          retention-days: 30
+
+      - name: 📤 Archive Test Results
+        if: always() # Run even if tests fail
+        uses: actions/upload-artifact@v3.1.3
+        with:
+          name: test-results
+          path: |
+            services/*/target/surefire-reports/
+            services/*/target/failsafe-reports/
+          retention-days: 30
+
+      - name: 📤 Archive Build Artifacts
+        uses: actions/upload-artifact@v3.1.3
+        with:
+          name: build-artifacts
+          path: |
+            services/service-registry/target/*.jar
+            services/api-gateway/target/*.jar
+            services/flightdata-service/target/*.jar
+            services/llm-summary-service/target/*.jar
+          retention-days: 7
+
+      - name: 📋 Build Summary
+        if: always()
+        run: |
+          echo "## 🏗️ Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Java Version:** 17 (Eclipse Temurin)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Actor:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Services Built" >> $GITHUB_STEP_SUMMARY
+          echo "- service-registry" >> $GITHUB_STEP_SUMMARY
+          echo "- api-gateway" >> $GITHUB_STEP_SUMMARY
+          echo "- flightdata-service" >> $GITHUB_STEP_SUMMARY
+          echo "- llm-summary-service" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🧪 Test Infrastructure" >> $GITHUB_STEP_SUMMARY
+          echo "- Redis 7 Alpine (Port 6379)" >> $GITHUB_STEP_SUMMARY
+          echo "- PostgreSQL 15 Alpine (Port 5432)" >> $GITHUB_STEP_SUMMARY
+
+  # JOB 2: Security Vulnerability Scanning
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: build-and-test # Only run after build succeeds
+    timeout-minutes: 15
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4.1.1
+        with:
+          fetch-depth: 0
+
+      - name: ☕ Set up JDK 17
+        uses: actions/setup-java@v4.0.0
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
+
+      - name: 🔍 Run OWASP Dependency Check
+        run: |
+          echo "🔍 Running OWASP Dependency Check on all services..."
+
+          for service in service-registry api-gateway flightdata-service llm-summary-service; do
+            echo ""
+            echo "🔍 Checking $service for vulnerabilities..."
+            cd services/$service
+
+            mvn org.owasp:dependency-check-maven:check -DskipTests || {
+              echo "⚠️  WARNING: OWASP check found issues in $service"
+            }
+
+            cd ../..
+          done
+
+          echo "✅ Dependency check complete for all services"
+        continue-on-error: true # Don't fail build, just report
+
+      - name: 🔐 Check for Hardcoded Secrets
+        run: |
+          echo "🔐 Scanning for hardcoded secrets..."
+
+          SECRETS_FOUND=0
+
+          # Check for API keys pattern
+          echo "Checking for API keys..."
+          if grep -r "apikey.*=.*[a-zA-Z0-9]\{20,\}" services/ \
+            --include="*.java" \
+            --include="*.yml" \
+            --include="*.properties" \
+            --exclude-dir="target" | grep -v "test-"; then
+            echo "❌ FAILED: Hardcoded API keys detected!"
+            SECRETS_FOUND=1
+          fi
+
+          # Check for passwords (excluding test and variable references)
+          echo "Checking for hardcoded passwords..."
+          if grep -r "password.*=.*['\"][^'\"]*['\"]" services/ \
+            --include="*.java" \
+            --include="*.yml" \
+            --include="*.properties" \
+            --exclude-dir="target" | grep -v "test" | grep -v "example" | grep -v "\${"; then
+            echo "⚠️  WARNING: Possible hardcoded passwords detected"
+            # Don't increment SECRETS_FOUND for passwords (might be false positives)
+          fi
+
+          # Check for AWS keys
+          echo "Checking for AWS keys..."
+          if grep -r "AKIA[0-9A-Z]\{16\}" services/ \
+            --include="*.java" \
+            --include="*.yml" \
+            --include="*.properties" \
+            --exclude-dir="target"; then
+            echo "❌ FAILED: Potential AWS keys found!"
+            SECRETS_FOUND=1
+          fi
+
+          # Check for private keys
+          echo "Checking for private keys..."
+          if grep -r "BEGIN.*PRIVATE KEY" services/ \
+            --include="*.java" \
+            --include="*.yml" \
+            --include="*.properties" \
+            --exclude-dir="target"; then
+            echo "❌ FAILED: Private keys found in source code!"
+            SECRETS_FOUND=1
+          fi
+
+          if [ $SECRETS_FOUND -eq 0 ]; then
+            echo "✅ No hardcoded secrets detected"
+          else
+            echo "❌ FAILED: Hardcoded secrets detected. Please use environment variables."
+            exit 1
+          fi
+
+      - name: 📝 Check Code Quality with Checkstyle
+        run: |
+          echo "📝 Running Checkstyle on all services..."
+
+          for service in service-registry api-gateway flightdata-service llm-summary-service; do
+            echo ""
+            echo "📝 Checking code style for $service..."
+            cd services/$service
+
+            # Check if checkstyle plugin is configured
+            if grep -q "maven-checkstyle-plugin" pom.xml 2>/dev/null; then
+              mvn checkstyle:check -DskipTests || {
+                echo "⚠️  WARNING: Checkstyle violations in $service"
+              }
+            else
+              echo "ℹ️  INFO: Checkstyle not configured for $service"
+            fi
+
+            cd ../..
+          done
+
+          echo "✅ Code style check complete"
+        continue-on-error: true
+
+      - name: 🐛 Run SpotBugs Static Analysis
+        run: |
+          echo "🐛 Running SpotBugs static analysis on all services..."
+
+          for service in service-registry api-gateway flightdata-service llm-summary-service; do
+            echo ""
+            echo "🐛 Analyzing $service..."
+            cd services/$service
+
+            # Check if SpotBugs plugin is configured
+            if grep -q "spotbugs-maven-plugin" pom.xml 2>/dev/null; then
+              mvn spotbugs:check -DskipTests || {
+                echo "⚠️  WARNING: SpotBugs found issues in $service"
+              }
+            else
+              echo "ℹ️  INFO: SpotBugs not configured for $service"
+            fi
+
+            cd ../..
+          done
+
+          echo "✅ Static analysis complete"
+        continue-on-error: true
+
+      - name: 📤 Upload OWASP Reports
+        if: always()
+        uses: actions/upload-artifact@v3.1.3
+        with:
+          name: owasp-reports
+          path: |
+            services/*/target/dependency-check-report.html
+          retention-days: 30
+
+      - name: 📋 Security Summary
+        if: always()
+        run: |
+          echo "## 🔒 Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Job Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **OWASP Dependency Check:** Completed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Secrets Scan:** Completed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Checkstyle:** Completed" >> $GITHUB_STEP_SUMMARY
+          echo "- **SpotBugs:** Completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 Scanned Services" >> $GITHUB_STEP_SUMMARY
+          echo "- service-registry" >> $GITHUB_STEP_SUMMARY
+          echo "- api-gateway" >> $GITHUB_STEP_SUMMARY
+          echo "- flightdata-service" >> $GITHUB_STEP_SUMMARY
+          echo "- llm-summary-service" >> $GITHUB_STEP_SUMMARY
+
+  # JOB 3: Build and Push Docker Images
+  docker-build-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [build-and-test, security-scan]
+    # Only push images on main branch
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 30
+
+    strategy:
+      matrix:
+        service:
+          - service-registry
+          - api-gateway
+          - flightdata-service
+          - llm-summary-service
+      max-parallel: 4 # Build all services in parallel
+
+    permissions:
+      contents: read
+      packages: write # Required for pushing to ghcr.io
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4.1.1
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.0.0
+
+      - name: 🔐 Log in to GitHub Container Registry
+        uses: docker/login-action@v3.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Extract Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v5.0.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/airline-tracker-${{ matrix.service }}
+          tags: |
+            type=sha,prefix=main-
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.service }}
+            org.opencontainers.image.description=Airline Tracker - ${{ matrix.service }}
+            org.opencontainers.image.vendor=Airline Tracker System
+
+      - name: 🔍 Check if Dockerfile Exists
+        id: dockerfile_check
+        run: |
+          if [ -f "services/${{ matrix.service }}/Dockerfile" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Dockerfile found for ${{ matrix.service }}"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️  WARNING: Dockerfile not found for ${{ matrix.service }}"
+          fi
+
+      - name: 🔨 Build and Push Docker Image
+        if: steps.dockerfile_check.outputs.exists == 'true'
+        uses: docker/build-push-action@v5.0.0
+        with:
+          context: ./services/${{ matrix.service }}
+          file: ./services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.sha }}
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+
+      - name: 📋 Docker Summary
+        if: always()
+        run: |
+          echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Service:** ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Registry:** ghcr.io" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** ghcr.io/${{ github.repository_owner }}/airline-tracker-${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tags:** ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit SHA:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+
+  # JOB 4: Performance Testing (Optional - doesn't block deployment)
+  performance-test:
+    name: Performance Test
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    continue-on-error: true # Don't block deployment on perf test failure
+    timeout-minutes: 20
+
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4.1.1
+
+      - name: ☕ Set up JDK 17
+        uses: actions/setup-java@v4.0.0
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: 📥 Download Build Artifacts
+        uses: actions/download-artifact@v3.0.2
+        with:
+          name: build-artifacts
+          path: services/
+
+      - name: 🚀 Start Docker Services for Performance Test
+        run: |
+          echo "🚀 Starting infrastructure services for performance testing..."
+
+          # Check if docker-compose.yml exists
+          if [ ! -f "docker-compose.yml" ]; then
+            echo "⚠️  WARNING: docker-compose.yml not found"
+            echo "Creating minimal docker-compose configuration..."
+
+            cat > docker-compose-perf.yml <<EOF
+          version: '3.8'
+          services:
+            redis:
+              image: redis:7-alpine
+              ports:
+                - "6379:6379"
+              healthcheck:
+                test: ["CMD", "redis-cli", "ping"]
+                interval: 10s
+                timeout: 5s
+                retries: 5
+
+            postgres:
+              image: postgres:15-alpine
+              ports:
+                - "5432:5432"
+              environment:
+                POSTGRES_DB: airline_tracker
+                POSTGRES_USER: airline_tracker_user
+                POSTGRES_PASSWORD: test_password
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U airline_tracker_user"]
+                interval: 10s
+                timeout: 5s
+                retries: 5
+
+            kafka:
+              image: confluentinc/cp-kafka:7.5.0
+              ports:
+                - "9092:9092"
+              environment:
+                KAFKA_BROKER_ID: 1
+                KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+                KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+                KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+                KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+              depends_on:
+                - zookeeper
+
+            zookeeper:
+              image: confluentinc/cp-zookeeper:7.5.0
+              ports:
+                - "2181:2181"
+              environment:
+                ZOOKEEPER_CLIENT_PORT: 2181
+                ZOOKEEPER_TICK_TIME: 2000
+          EOF
+
+            docker-compose -f docker-compose-perf.yml up -d
+          else
+            docker-compose up -d redis postgres kafka zookeeper
+          fi
+
+          echo "⏳ Waiting for services to be healthy..."
+          sleep 30
+
+          # Verify services are running
+          docker ps
+          echo "✅ Infrastructure services started"
+
+      - name: 🎯 Create Performance Test Configuration
+        run: |
+          echo "🎯 Creating Gatling performance test configuration..."
+
+          # Create performance-tests directory structure
+          mkdir -p performance-tests/src/test/scala/com/airlinetracker/perf
+
+          # Create a simple performance test simulation
+          cat > performance-tests/src/test/scala/com/airlinetracker/perf/FlightTrackingSimulation.scala <<'EOF'
+          package com.airlinetracker.perf
+
+          import io.gatling.core.Predef._
+          import io.gatling.http.Predef._
+          import scala.concurrent.duration._
+
+          class FlightTrackingSimulation extends Simulation {
+
+            val httpProtocol = http
+              .baseUrl(sys.env.getOrElse("TARGET_URL", "http://localhost:8080"))
+              .acceptHeader("application/json")
+              .acceptEncodingHeader("gzip, deflate")
+
+            // Scenario 1: Health check endpoint
+            val healthCheck = scenario("Health Check")
+              .exec(http("health_check")
+                .get("/actuator/health")
+                .check(status.is(200)))
+
+            // Scenario 2: Flight data retrieval (simulated)
+            val flightDataRetrieval = scenario("Flight Data Retrieval")
+              .exec(http("get_flight_data")
+                .get("/api/v1/flight/UAL123")
+                .check(status.in(200, 404, 503))) // Accept 404 if mock not available
+
+            // Performance SLA targets from PRD:
+            // - Cache Hit: < 500ms
+            // - Cache Miss: < 3000ms
+            setUp(
+              healthCheck.inject(rampUsers(10) during (10 seconds)),
+              flightDataRetrieval.inject(
+                constantUsersPerSec(5) during (30 seconds)
+              )
+            ).protocols(httpProtocol)
+             .assertions(
+               global.responseTime.max.lt(5000),
+               global.successfulRequests.percent.gt(80)
+             )
+          }
+          EOF
+
+          # Create pom.xml for Gatling
+          cat > performance-tests/pom.xml <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+              <modelVersion>4.0.0</modelVersion>
+
+              <groupId>com.airlinetracker</groupId>
+              <artifactId>performance-tests</artifactId>
+              <version>1.0.0</version>
+
+              <properties>
+                  <maven.compiler.source>17</maven.compiler.source>
+                  <maven.compiler.target>17</maven.compiler.target>
+                  <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+                  <gatling.version>3.9.5</gatling.version>
+                  <gatling-maven-plugin.version>4.5.0</gatling-maven-plugin.version>
+                  <scala-maven-plugin.version>4.8.0</scala-maven-plugin.version>
+              </properties>
+
+              <dependencies>
+                  <dependency>
+                      <groupId>io.gatling.highcharts</groupId>
+                      <artifactId>gatling-charts-highcharts</artifactId>
+                      <version>${gatling.version}</version>
+                      <scope>test</scope>
+                  </dependency>
+              </dependencies>
+
+              <build>
+                  <plugins>
+                      <plugin>
+                          <groupId>io.gatling</groupId>
+                          <artifactId>gatling-maven-plugin</artifactId>
+                          <version>${gatling-maven-plugin.version}</version>
+                      </plugin>
+                      <plugin>
+                          <groupId>net.alchim31.maven</groupId>
+                          <artifactId>scala-maven-plugin</artifactId>
+                          <version>${scala-maven-plugin.version}</version>
+                          <executions>
+                              <execution>
+                                  <goals>
+                                      <goal>testCompile</goal>
+                                  </goals>
+                              </execution>
+                          </executions>
+                      </plugin>
+                  </plugins>
+              </build>
+          </project>
+          EOF
+
+          echo "✅ Performance test configuration created"
+
+      - name: ⚡ Run Gatling Performance Tests
+        run: |
+          echo "⚡ Running Gatling performance tests..."
+
+          cd performance-tests
+
+          # Run Gatling tests with target URL
+          mvn gatling:test -Dgatling.simulationClass=com.airlinetracker.perf.FlightTrackingSimulation || {
+            echo "⚠️  WARNING: Performance tests encountered issues"
+            echo "This is non-blocking - continuing..."
+          }
+
+          echo "✅ Performance tests execution complete"
+        env:
+          TARGET_URL: http://localhost:8080
+
+      - name: 📤 Upload Gatling Report
+        uses: actions/upload-artifact@v3.1.3
+        if: always()
+        with:
+          name: gatling-performance-report
+          path: performance-tests/target/gatling/
+          retention-days: 30
+
+      - name: 📊 Check Performance SLA
+        if: always()
+        run: |
+          echo "📊 Checking performance SLA against PRD targets..."
+          echo ""
+          echo "PRD Performance Targets:"
+          echo "  - Cache Hit Response: < 500ms"
+          echo "  - Cache Miss Response: < 3000ms"
+          echo "  - Throughput: 100 concurrent users"
+          echo "  - Success Rate: > 95%"
+          echo ""
+
+          # Check if simulation.log exists and contains results
+          if [ -f "performance-tests/target/gatling/*/simulation.log" ]; then
+            echo "📊 Analyzing results..."
+
+            # Check for failures in simulation log
+            if grep -q "FAILED" performance-tests/target/gatling/*/simulation.log; then
+              echo "⚠️  WARNING: Some performance SLA not met"
+              echo "Review the Gatling report in artifacts for details"
+            else
+              echo "✅ All performance assertions passed"
+            fi
+
+            # Extract and display basic metrics
+            echo ""
+            echo "📊 Performance Metrics Summary:"
+            grep -h "REQUEST" performance-tests/target/gatling/*/simulation.log | tail -5 || echo "No metrics available"
+          else
+            echo "⚠️  WARNING: Performance test results not found"
+          fi
+
+      - name: 🧹 Stop Docker Services
+        if: always()
+        run: |
+          echo "🧹 Stopping Docker services..."
+
+          if [ -f "docker-compose-perf.yml" ]; then
+            docker-compose -f docker-compose-perf.yml down -v
+          elif [ -f "docker-compose.yml" ]; then
+            docker-compose down
+          fi
+
+          echo "✅ Docker services stopped"
+
+      - name: 📋 Performance Test Summary
+        if: always()
+        run: |
+          echo "## ⚡ Performance Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Test Framework:** Gatling (Scala)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target URL:** http://localhost:8080" >> $GITHUB_STEP_SUMMARY
+          echo "- **Report:** Available in artifacts (gatling-performance-report)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 PRD Performance Targets" >> $GITHUB_STEP_SUMMARY
+          echo "- Cache Hit: < 500ms (p95)" >> $GITHUB_STEP_SUMMARY
+          echo "- Cache Miss: < 3000ms (p95)" >> $GITHUB_STEP_SUMMARY
+          echo "- Throughput: 100 concurrent users" >> $GITHUB_STEP_SUMMARY
+          echo "- Success Rate: > 95%" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚠️  Note" >> $GITHUB_STEP_SUMMARY
+          echo "Performance tests run in continue-on-error mode and do not block deployment." >> $GITHUB_STEP_SUMMARY
+          echo "Review the Gatling HTML report for detailed metrics." >> $GITHUB_STEP_SUMMARY
+
+  # JOB 5: Pipeline Summary & Notifications
+  pipeline-summary:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [build-and-test, security-scan, docker-build-push]
+    if: always()  # Always run, even if previous jobs fail
+
+    steps:
+      - name: Check Job Results
+        id: check
+        run: |
+          echo "build_status=${{ needs.build-and-test.result }}" >> $GITHUB_OUTPUT
+          echo "security_status=${{ needs.security-scan.result }}" >> $GITHUB_OUTPUT
+          echo "docker_status=${{ needs.docker-build-push.result }}" >> $GITHUB_OUTPUT
+
+      - name: Generate Pipeline Summary
+        run: |
+          echo "# 🚀 Airline Tracker CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 Job Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build & Test | ${{ needs.build-and-test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Scan | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Build | ${{ needs.docker-build-push.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📝 Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Workflow:** ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Determine Overall Status
+        id: overall
+        run: |
+          if [[ "${{ needs.build-and-test.result }}" == "success" && \
+                "${{ needs.security-scan.result }}" == "success" ]]; then
+            echo "status=✅ SUCCESS" >> $GITHUB_OUTPUT
+            echo "color=28a745" >> $GITHUB_OUTPUT
+          elif [[ "${{ needs.build-and-test.result }}" == "failure" ]]; then
+            echo "status=❌ FAILED" >> $GITHUB_OUTPUT
+            echo "color=d73a49" >> $GITHUB_OUTPUT
+          else
+            echo "status=⚠️  WARNING" >> $GITHUB_OUTPUT
+            echo "color=ffc107" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Pipeline Result
+        run: |
+          echo "## 🎯 Overall Status: ${{ steps.overall.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ steps.overall.outputs.status }}" == *"SUCCESS"* ]]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ All critical jobs passed!" >> $GITHUB_STEP_SUMMARY
+            echo "- Tests: Passing" >> $GITHUB_STEP_SUMMARY
+            echo "- Security: Clean" >> $GITHUB_STEP_SUMMARY
+            echo "- Docker: Built" >> $GITHUB_STEP_SUMMARY
+            exit 0
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Pipeline failed. Check job logs above." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi

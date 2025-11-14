@@ -50,3 +50,26 @@ jacoco.exec
 .docker/
 docker-compose.override.yml
 
+# Compiled files
+*.jar
+*.war
+*.ear
+*.class
+
+# Docker volumes
+postgres-data/
+redis-data/
+grafana-data/
+prometheus-data/
+postgres_data/
+redis_data/
+grafana_data/
+prometheus_data/
+
+# Test reports
+surefire-reports/
+failsafe-reports/
+
+# Windows artifacts
+nul
+
