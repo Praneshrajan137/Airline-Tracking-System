@@ -60,8 +60,10 @@ public class OpenAIClient {
         this.temperature = temperature;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule()); // Enable Java 8 date/time support
-        log.info("OpenAIClient initialized: model={}, maxTokens={}, temperature={}", 
-                 model, maxTokens, temperature);
+        log.info("=== OPENAI CLIENT INITIALIZED ===");
+        log.info("Base URL: {}", baseUrl);
+        log.info("Model: {}", model);
+        log.info("Max Tokens: {}, Temperature: {}", maxTokens, temperature);
     }
 
     /**
@@ -93,6 +95,7 @@ public class OpenAIClient {
             );
 
             // Call OpenAI API
+            log.info("Calling OpenAI API: {}/chat/completions", webClient.toString().contains("baseUrl") ? "configured" : "http://wiremock:8080/v1");
             OpenAIResponse response = webClient.post()
                     .uri("/chat/completions")
                     .header("Authorization", "Bearer " + apiKey)

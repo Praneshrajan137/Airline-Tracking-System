@@ -42,8 +42,14 @@ class FlightAwareClientTest {
                 .baseUrl("http://localhost:8089")
                 .build();
 
+        // Create mock rate limiter that always allows requests for testing
+        com.airlinetracker.flightdata.config.RateLimitConfig.RateLimiter mockRateLimiter =
+                new com.airlinetracker.flightdata.config.RateLimitConfig.RateLimiter(
+                        null, 1000, 10000, 100000, false  // Disabled for tests
+                );
+
         // Create client instance
-        flightAwareClient = new FlightAwareClient(webClient, API_KEY);
+        flightAwareClient = new FlightAwareClient(webClient, API_KEY, mockRateLimiter);
     }
 
     @AfterEach

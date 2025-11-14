@@ -78,7 +78,7 @@ public class SummaryController {
         return FlightSummaryResponse.builder()
                 .ident(summary.getIdent())
                 .faFlightId(summary.getFaFlightId())
-                .summary(summary.getSummaryText())
+                .summaryText(summary.getSummaryText())
                 .generatedAt(summary.getGeneratedAt())
                 .build();
     }

@@ -1,0 +1,82 @@
+# Production Configuration for LLM Summary Service
+# Includes rate limiting to protect OpenAI API costs
+
+spring:
+  application:
+    name: llm-summary-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://postgres:5432/airline_tracker}
+    username: ${SPRING_DATASOURCE_USERNAME:airline_tracker_user}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      group-id: ${KAFKA_GROUP_ID:llm-summary-consumer-group}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        spring.json.trusted.packages: "*"
+
+# Server Configuration (merged - removed duplicate)
+server:
+  port: ${SERVER_PORT:8082}
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-exception: false
+
+# Eureka Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://service-registry:8761/eureka/}
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: false
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:llm-summary-service}
+    lease-renewal-interval-in-seconds: 30
+    lease-expiration-duration-in-seconds: 90
+
+# OpenAI API Configuration
+openai:
+  base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+  api-key: ${OPENAI_API_KEY}
+  model: ${OPENAI_MODEL:gpt-4o-mini}
+  max-tokens: ${OPENAI_MAX_TOKENS:150}
+  temperature: ${OPENAI_TEMPERATURE:0.7}
+  timeout-seconds: 10
+  # STRICT RATE LIMITING: $5 BUDGET PROTECTION
+  # 3,000 summaries/month at $0.0008/summary = $2.40/month (48% of budget, 52% buffer)
+  # Recommended: gpt-4o-mini ($0.45/month) or gpt-3.5-turbo ($2.40/month)
+  rate-limit:
+    calls-per-minute: 3       # Prevent burst usage
+    calls-per-hour: 10        # Conservative hourly cap
+    calls-per-day: 100        # 100/day × 30 = 3,000/month ($2.40 with GPT-3.5)
+    enabled: true
+
+# Kafka Configuration (merged - removed duplicate)
+kafka:
+  topic: ${KAFKA_TOPIC:flight-data-events}
+  group-id: ${KAFKA_GROUP_ID:llm-summary-consumer-group}
+
+# Logging
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.airlinetracker: ${LOG_LEVEL_APP:INFO}
+    com.airlinetracker.llmsummary.client: INFO  # Log all OpenAI API calls
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+

@@ -1,0 +1,21 @@
+# Grafana Datasource Configuration
+# Source: PRD.md NFR-4 - Observability
+# 
+# Purpose: Configure Prometheus as the data source for Grafana
+# This file is automatically loaded by Grafana on startup
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+      queryTimeout: 60s
+    version: 1
+

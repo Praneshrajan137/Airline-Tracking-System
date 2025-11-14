@@ -1,0 +1,22 @@
+# Dockerfile for LLM Summary Service
+# Phase 5: E2E Integration Testing
+
+FROM eclipse-temurin:17-jre-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Copy JAR from services/llm-summary-service/target
+COPY ../services/llm-summary-service/target/llm-summary-service-1.0.0.jar app.jar
+
+# Expose service port
+EXPOSE 8082
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8082/actuator/health || exit 1
+
+# Run the application
+ENTRYPOINT ["java", "-jar", "app.jar"]
+
+

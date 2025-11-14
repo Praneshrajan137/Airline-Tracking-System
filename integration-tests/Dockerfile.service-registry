@@ -1,0 +1,22 @@
+# Dockerfile for Service Registry (Eureka Server)
+# Phase 5: E2E Integration Testing
+
+FROM eclipse-temurin:17-jre-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Copy JAR from services/service-registry/target
+COPY ../services/service-registry/target/service-registry-1.0.0.jar app.jar
+
+# Expose Eureka port
+EXPOSE 8761
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8761/actuator/health || exit 1
+
+# Run the application
+ENTRYPOINT ["java", "-jar", "app.jar"]
+
+

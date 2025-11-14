@@ -63,7 +63,8 @@ public class SummaryService {
             }
 
             // Save to database (timestamps handled by @PrePersist/@PreUpdate)
-            repository.save(flightSummary);
+            // Use saveAndFlush to ensure immediate DB commit for E2E test visibility
+            repository.saveAndFlush(flightSummary);
             log.info("Successfully saved summary for flight {}", flightData.getIdent());
 
         } catch (Exception e) {

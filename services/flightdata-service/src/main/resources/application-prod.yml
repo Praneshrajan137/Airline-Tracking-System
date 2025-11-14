@@ -1,0 +1,70 @@
+# Production Configuration for FlightData Service
+# Includes strict rate limiting to protect FlightAware API free tier
+
+spring:
+  application:
+    name: flightdata-service
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:redis}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+      timeout: 5000ms
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+# Server Configuration (merged - removed duplicate)
+server:
+  port: ${SERVER_PORT:8081}
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-exception: false
+
+# Eureka Configuration
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://service-registry:8761/eureka/}
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: false
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:flightdata-service}
+    lease-renewal-interval-in-seconds: 30
+    lease-expiration-duration-in-seconds: 90
+
+# FlightAware API Configuration
+flightaware:
+  base-url: ${FLIGHTAWARE_BASE_URL:https://aeroapi.flightaware.com/aeroapi}
+  api-key: ${FLIGHTAWARE_API_KEY}
+  timeout-seconds: ${FLIGHTAWARE_API_TIMEOUT_SECONDS:5}
+  max-retries: ${FLIGHTAWARE_API_RETRY_ATTEMPTS:3}
+  # STRICT RATE LIMITING: FREE TIER PROTECTION (500 calls/month)
+  # Conservative limits: 390/month (78% usage, 22% safety buffer) = $0/month
+  rate-limit:
+    calls-per-minute: 1       # Well below 5/min API limit
+    calls-per-hour: 10        # Conservative hourly cap
+    calls-per-day: 13         # 13/day × 30 = 390/month (stays in free tier)
+    enabled: true
+
+# Redis Cache Configuration
+cache:
+  ttl-seconds: ${REDIS_CACHE_TTL_SECONDS:300}
+  max-size: 1000
+
+# Kafka Configuration (merged - removed duplicate)
+kafka:
+  topic: ${KAFKA_TOPIC:flight-data-events}
+
+# Logging
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.airlinetracker: ${LOG_LEVEL_APP:INFO}
+    com.airlinetracker.flightdata.client: INFO  # Log all API calls
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+

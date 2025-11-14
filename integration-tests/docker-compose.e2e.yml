@@ -1,0 +1,227 @@
+version: '3.8'
+
+# Phase 5: E2E Integration Testing - Full Stack Orchestration
+# This compose file starts all microservices + infrastructure for end-to-end testing
+
+services:
+  # ============================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================
+
+  # PostgreSQL Database (for llm-summary-service)
+  postgres:
+    image: postgres:15-alpine
+    container_name: e2e-postgres
+    environment:
+      POSTGRES_DB: airline_tracker_test
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_pass
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d airline_tracker_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - airline-network
+
+  # Redis Cache (for flightdata-service)
+  redis:
+    image: redis:7-alpine
+    container_name: e2e-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - airline-network
+
+  # Zookeeper (for Kafka)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: e2e-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - airline-network
+
+  # Kafka Message Broker
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: e2e-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - airline-network
+
+  # WireMock (mocks FlightAware and OpenAI APIs)
+  wiremock:
+    image: wiremock/wiremock:3.3.1
+    container_name: e2e-wiremock
+    command:
+      - --global-response-templating
+      - --verbose
+    ports:
+      - "8089:8080"
+    networks:
+      - airline-network
+
+  # ============================================
+  # MICROSERVICES
+  # ============================================
+
+  # Service Registry (Eureka Server)
+  service-registry:
+    build:
+      context: ..
+      dockerfile: integration-tests/Dockerfile.service-registry
+    container_name: e2e-service-registry
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8761
+    ports:
+      - "8761:8761"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8761/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - airline-network
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: integration-tests/Dockerfile.api-gateway
+    container_name: e2e-api-gateway
+    depends_on:
+      service-registry:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8080
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: api-gateway
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - airline-network
+
+  # FlightData Service
+  flightdata-service:
+    build:
+      context: ..
+      dockerfile: integration-tests/Dockerfile.flightdata-service
+    container_name: e2e-flightdata-service
+    depends_on:
+      service-registry:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      wiremock:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8081
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: flightdata-service
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      FLIGHTAWARE_BASE_URL: http://wiremock:8080
+      FLIGHTAWARE_API_KEY: test-key-flightaware
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - airline-network
+
+  # LLM Summary Service
+  llm-summary-service:
+    build:
+      context: ..
+      dockerfile: integration-tests/Dockerfile.llm-summary-service
+    container_name: e2e-llm-summary-service
+    depends_on:
+      service-registry:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      wiremock:
+        condition: service_started
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8082
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://service-registry:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: llm-summary-service
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/airline_tracker_test
+      SPRING_DATASOURCE_USERNAME: test_user
+      SPRING_DATASOURCE_PASSWORD: test_pass
+      SPRING_JPA_HIBERNATE_DDL_AUTO: create-drop
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      OPENAI_BASE_URL: http://wiremock:8080/v1
+      OPENAI_API_KEY: test-key-openai
+      OPENAI_MODEL: gpt-3.5-turbo
+      OPENAI_MAX_TOKENS: 150
+      OPENAI_TEMPERATURE: 0.7
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8082/actuator/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 40s
+    networks:
+      - airline-network
+
+networks:
+  airline-network:
+    driver: bridge
+

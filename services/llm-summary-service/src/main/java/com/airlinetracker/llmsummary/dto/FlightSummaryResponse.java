@@ -24,8 +24,8 @@ public class FlightSummaryResponse {
     @JsonProperty("fa_flight_id")
     private String faFlightId;
 
-    @JsonProperty("summary")
-    private String summary;
+    @JsonProperty("summary_text")
+    private String summaryText;
 
     @JsonProperty("generated_at")
     private Instant generatedAt;

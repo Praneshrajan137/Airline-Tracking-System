@@ -11,6 +11,8 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.kafka.listener.ContainerProperties;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -38,6 +40,8 @@ public class KafkaConsumerConfig {
         config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false); // Manual commit for reliability
+        config.put(ConsumerConfig.ISOLATION_LEVEL_CONFIG, "read_committed");
         
         // JSON Deserializer configuration
         config.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
@@ -56,6 +60,8 @@ public class KafkaConsumerConfig {
         ConcurrentKafkaListenerContainerFactory<String, FlightData> factory = 
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(consumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.RECORD);
+        factory.setCommonErrorHandler(new DefaultErrorHandler()); // Retry on error
         return factory;
     }
 }

@@ -19,7 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * TDD Test for SummaryController.
  * Tests REST API endpoint for retrieving flight summaries.
- * 
+ *
  * RED Phase: This test will fail until SummaryController is implemented.
  */
 @WebMvcTest(SummaryController.class)
@@ -54,7 +54,7 @@ class SummaryControllerTest {
                 .andExpect(content().contentType("application/json"))
                 .andExpect(jsonPath("$.ident").value("UAL123"))
                 .andExpect(jsonPath("$.fa_flight_id").value("UAL123-1234567890-1-0"))
-                .andExpect(jsonPath("$.summary").value("United Flight 123 is en route from Chicago to Los Angeles."))
+                .andExpect(jsonPath("$.summary_text").value("United Flight 123 is en route from Chicago to Los Angeles."))
                 .andExpect(jsonPath("$.generated_at").value("2025-11-10T10:00:00Z"));
     }
 
@@ -111,7 +111,7 @@ class SummaryControllerTest {
         mockMvc.perform(get("/api/v1/flight/BA456/summary"))
                 .andExpect(status().isOk());
 
-        // Test 3-letter airline code  
+        // Test 3-letter airline code
         summary.setIdent("UAL123");
         when(summaryService.getFlightSummaryByIdent("UAL123"))
                 .thenReturn(Optional.of(summary));
@@ -133,4 +133,3 @@ class SummaryControllerTest {
                 .andExpect(status().isOk());
     }
 }
-

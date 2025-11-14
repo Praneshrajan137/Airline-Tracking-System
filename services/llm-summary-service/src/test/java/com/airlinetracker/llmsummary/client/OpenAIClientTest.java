@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * TDD Test for OpenAIClient.
  * Uses WireMock to simulate OpenAI API responses.
- * 
+ *
  * RED Phase: This test will fail until OpenAIClient is implemented.
  */
 @DisplayName("OpenAIClient Tests")
@@ -219,34 +219,18 @@ class OpenAIClientTest {
         return FlightData.builder()
                 .ident("UAL123")
                 .faFlightId("UAL123-1234567890-1-0")
-                .actualOff(Instant.parse("2025-11-10T10:00:00Z"))
-                .actualOn(null)
-                .origin(FlightData.Airport.builder()
-                        .code("KORD")
-                        .codeIcao("KORD")
-                        .codeIata("ORD")
-                        .name("Chicago O'Hare International Airport")
-                        .city("Chicago")
-                        .timezone("America/Chicago")
-                        .build())
-                .destination(FlightData.Airport.builder()
-                        .code("KLAX")
-                        .codeIcao("KLAX")
-                        .codeIata("LAX")
-                        .name("Los Angeles International Airport")
-                        .city("Los Angeles")
-                        .timezone("America/Los_Angeles")
-                        .build())
-                .lastPosition(FlightData.Position.builder()
-                        .altitude(35000)
-                        .groundspeed(450)
-                        .heading(270)
-                        .latitude(39.8283)
-                        .longitude(-98.5795)
-                        .timestamp(Instant.parse("2025-11-10T12:30:00Z"))
-                        .build())
-                .aircraftType("B737")
+                .status("En-Route / In Flight")
+                .scheduledOut(Instant.parse("2025-11-10T09:00:00Z"))
+                .actualOut(Instant.parse("2025-11-10T10:00:00Z"))
+                .scheduledIn(Instant.parse("2025-11-10T14:00:00Z"))
+                .actualIn(null)
+                .origin("KORD")
+                .destination("KLAX")
+                .aircraftType("B738")
+                .latitude(39.8283)
+                .longitude(-98.5795)
+                .altitude(35000)
+                .groundspeed(450)
                 .build();
     }
 }
-

@@ -1,0 +1,20 @@
+# Grafana Dashboard Provisioning Configuration
+# Source: PRD.md NFR-4 - Observability
+# 
+# Purpose: Automatically load dashboards on Grafana startup
+# This file tells Grafana where to find dashboard JSON files
+
+apiVersion: 1
+
+providers:
+  - name: 'Airline Tracker Dashboards'
+    orgId: 1
+    folder: 'Airline Tracker'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
+

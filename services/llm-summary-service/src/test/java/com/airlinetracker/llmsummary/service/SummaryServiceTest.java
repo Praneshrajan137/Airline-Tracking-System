@@ -24,7 +24,7 @@ import static org.mockito.Mockito.*;
 /**
  * TDD Test for SummaryService.
  * Tests the orchestration between OpenAI Client and Repository.
- * 
+ *
  * RED Phase: This test will fail until SummaryService is implemented.
  */
 @ExtendWith(MockitoExtension.class)
@@ -47,33 +47,18 @@ class SummaryServiceTest {
         testFlightData = FlightData.builder()
                 .ident("UAL123")
                 .faFlightId("UAL123-1234567890-1-0")
-                .actualOff(Instant.parse("2025-11-10T10:00:00Z"))
-                .actualOn(null)
-                .origin(FlightData.Airport.builder()
-                        .code("KORD")
-                        .codeIcao("KORD")
-                        .codeIata("ORD")
-                        .name("Chicago O'Hare International Airport")
-                        .city("Chicago")
-                        .timezone("America/Chicago")
-                        .build())
-                .destination(FlightData.Airport.builder()
-                        .code("KLAX")
-                        .codeIcao("KLAX")
-                        .codeIata("LAX")
-                        .name("Los Angeles International Airport")
-                        .city("Los Angeles")
-                        .timezone("America/Los_Angeles")
-                        .build())
-                .lastPosition(FlightData.Position.builder()
-                        .altitude(35000)
-                        .groundspeed(450)
-                        .heading(270)
-                        .latitude(39.8283)
-                        .longitude(-98.5795)
-                        .timestamp(Instant.parse("2025-11-10T12:30:00Z"))
-                        .build())
-                .aircraftType("B737")
+                .status("En-Route / In Flight")
+                .scheduledOut(Instant.parse("2025-11-10T09:00:00Z"))
+                .actualOut(Instant.parse("2025-11-10T10:00:00Z"))
+                .scheduledIn(Instant.parse("2025-11-10T14:00:00Z"))
+                .actualIn(null)
+                .origin("KORD")
+                .destination("KLAX")
+                .aircraftType("B738")
+                .latitude(39.8283)
+                .longitude(-98.5795)
+                .altitude(35000)
+                .groundspeed(450)
                 .build();
     }
 
@@ -83,7 +68,7 @@ class SummaryServiceTest {
         // Given: Mock OpenAI response and repository save
         String expectedSummary = "United Flight 123 is en route from Chicago to Los Angeles.";
         when(openAIClient.generateSummary(any(FlightData.class))).thenReturn(expectedSummary);
-        when(repository.save(any(FlightSummary.class))).thenAnswer(invocation -> {
+        when(repository.saveAndFlush(any(FlightSummary.class))).thenAnswer(invocation -> {
             FlightSummary summary = invocation.getArgument(0);
             summary.setId(1L);
             return summary;
@@ -97,7 +82,7 @@ class SummaryServiceTest {
 
         // Verify repository save was called with correct data
         ArgumentCaptor<FlightSummary> captor = ArgumentCaptor.forClass(FlightSummary.class);
-        verify(repository, times(1)).save(captor.capture());
+        verify(repository, times(1)).saveAndFlush(captor.capture());
 
         FlightSummary savedSummary = captor.getValue();
         assertThat(savedSummary.getIdent()).isEqualTo("UAL123");
@@ -122,16 +107,16 @@ class SummaryServiceTest {
 
         when(repository.findByFaFlightId("UAL123-1234567890-1-0")).thenReturn(Optional.of(existingSummary));
         when(openAIClient.generateSummary(any(FlightData.class))).thenReturn(newSummary);
-        when(repository.save(any(FlightSummary.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.saveAndFlush(any(FlightSummary.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // When: Processing the same flight data
         summaryService.processFlightData(testFlightData);
 
         // Then: Verify existing summary was updated, not created
         verify(repository, times(1)).findByFaFlightId("UAL123-1234567890-1-0");
-        
+
         ArgumentCaptor<FlightSummary> captor = ArgumentCaptor.forClass(FlightSummary.class);
-        verify(repository, times(1)).save(captor.capture());
+        verify(repository, times(1)).saveAndFlush(captor.capture());
 
         FlightSummary updatedSummary = captor.getValue();
         assertThat(updatedSummary.getId()).isEqualTo(1L); // Same ID
@@ -203,7 +188,7 @@ class SummaryServiceTest {
         when(openAIClient.generateSummary(any(FlightData.class)))
                 .thenReturn("Summary");
         when(repository.findByFaFlightId(anyString())).thenReturn(Optional.empty());
-        when(repository.save(any(FlightSummary.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.saveAndFlush(any(FlightSummary.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         // When: Processing flight data
         summaryService.processFlightData(testFlightData);
@@ -212,4 +197,3 @@ class SummaryServiceTest {
         verify(repository, times(1)).findByFaFlightId("UAL123-1234567890-1-0");
     }
 }
-

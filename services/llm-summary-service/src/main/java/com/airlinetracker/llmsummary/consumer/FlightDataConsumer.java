@@ -22,6 +22,8 @@ public class FlightDataConsumer {
     @Autowired
     public FlightDataConsumer(SummaryService summaryService) {
         this.summaryService = summaryService;
+        log.info("=== KAFKA CONSUMER INITIALIZED ===");
+        log.info("Ready to consume from topic: flight-data-events");
     }
 
     /**
@@ -36,12 +38,15 @@ public class FlightDataConsumer {
             containerFactory = "kafkaListenerContainerFactory"
     )
     public void consumeFlightData(FlightData flightData) {
-        log.info("Received flight data event: {} ({})", flightData.getIdent(), flightData.getFaFlightId());
+        log.info("=== KAFKA EVENT RECEIVED ===");
+        log.info("Flight Ident: {}", flightData.getIdent());
+        log.info("FA Flight ID: {}", flightData.getFaFlightId());
 
         try {
             // Delegate to service layer for processing
             summaryService.processFlightData(flightData);
-            log.info("Successfully processed flight data event for {}", flightData.getIdent());
+            log.info("=== SUMMARY SAVED SUCCESSFULLY ===");
+            log.info("Flight: {}", flightData.getIdent());
 
         } catch (Exception e) {
             log.error("Failed to process flight data event for {}: {}", 

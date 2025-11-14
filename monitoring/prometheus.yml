@@ -1,0 +1,98 @@
+# Prometheus Configuration
+# Source: PRD.md NFR-4 - Observability
+# 
+# Purpose: Scrape metrics from all 4 microservices
+# Scraping Interval: 15 seconds (as per PRD)
+# Endpoint: /actuator/prometheus on each service
+
+global:
+  scrape_interval: 15s      # PRD requirement: scrape every 15 seconds
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'airline-tracker-dev'
+    environment: 'development'
+
+# Alertmanager configuration (optional, for future use)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "alerts/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # ============================================
+  # SERVICE REGISTRY (Eureka Server)
+  # ============================================
+  - job_name: 'service-registry'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['service-registry:8761']
+        labels:
+          service: 'service-registry'
+          layer: 'infrastructure'
+
+  # ============================================
+  # API GATEWAY
+  # ============================================
+  - job_name: 'api-gateway'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['api-gateway:8080']
+        labels:
+          service: 'api-gateway'
+          layer: 'gateway'
+
+  # ============================================
+  # FLIGHTDATA SERVICE
+  # ============================================
+  - job_name: 'flightdata-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['flightdata-service:8081']
+        labels:
+          service: 'flightdata-service'
+          layer: 'backend'
+
+  # ============================================
+  # LLM SUMMARY SERVICE
+  # ============================================
+  - job_name: 'llm-summary-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['llm-summary-service:8082']
+        labels:
+          service: 'llm-summary-service'
+          layer: 'backend'
+
+  # ============================================
+  # PROMETHEUS SELF-MONITORING
+  # ============================================
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+          layer: 'monitoring'
+
+  # ============================================
+  # INFRASTRUCTURE COMPONENTS (Optional)
+  # ============================================
+  # Uncomment if exporters are added
+  
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+
+  # - job_name: 'kafka'
+  #   static_configs:
+  #     - targets: ['kafka-exporter:9308']
+
