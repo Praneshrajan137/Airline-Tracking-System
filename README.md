@@ -1,4 +1,11 @@
-# Airline Tracking System
+# ✈️ Airline Tracker - Real-Time Flight Tracking with AI Summaries
+
+[![CI/CD Pipeline](https://github.com/Praneshrajan137/Airline-Tracking-System/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Praneshrajan137/Airline-Tracking-System/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Java](https://img.shields.io/badge/Java-17-red.svg)](https://adoptium.net/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2-brightgreen.svg)](https://spring.io/projects/spring-boot)
+
+> Production-ready microservices system demonstrating Java/Spring Boot, System Design, LLM Integration, and Real-Time Data Processing
 
 A distributed microservices-based system for real-time flight tracking with AI-powered summaries.
 
