@@ -1,6 +1,8 @@
 package com.airlinetracker.flightdata.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -13,10 +15,10 @@ import java.time.Instant;
 
 /**
  * Flight Data DTO
- * 
+ *
  * Source: docs/API-SPEC.yml - FlightData schema
  * Represents real-time flight information from FlightAware AeroAPI
- * 
+ *
  * This DTO is used for:
  * - Response from FlightAware API
  * - Caching in Redis (must be Serializable)
@@ -27,6 +29,7 @@ import java.time.Instant;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class FlightData implements Serializable {
 
     private static final long serialVersionUID = 1L;
@@ -81,17 +84,19 @@ public class FlightData implements Serializable {
     private Instant actualIn;
 
     /**
-     * Origin airport ICAO code
-     * Example: "KORD" (Chicago O'Hare)
+     * Origin airport (FlightAware returns nested object)
+     * We extract the ICAO code for simplicity
      */
     @JsonProperty("origin")
+    @JsonDeserialize(using = AirportCodeDeserializer.class)
     private String origin;
 
     /**
-     * Destination airport ICAO code
-     * Example: "KLAX" (Los Angeles)
+     * Destination airport (FlightAware returns nested object)
+     * We extract the ICAO code for simplicity
      */
     @JsonProperty("destination")
+    @JsonDeserialize(using = AirportCodeDeserializer.class)
     private String destination;
 
     /**
@@ -125,4 +130,3 @@ public class FlightData implements Serializable {
     @JsonProperty("groundspeed")
     private Integer groundspeed;
 }
-
