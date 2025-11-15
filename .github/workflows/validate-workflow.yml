@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3.5.3
 
       - name: ✅ Validate Repository Structure
         run: |
@@ -89,7 +89,7 @@ jobs:
           echo "🎉 Repository structure is valid for CI/CD pipeline"
 
       - name: ☕ Test Java Setup
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v3.11.0
         with:
           java-version: '17'
           distribution: 'temurin'
