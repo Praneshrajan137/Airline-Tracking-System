@@ -1,0 +1,119 @@
+# ============================================
+# WORKFLOW VALIDATION - Quick Health Check
+# ============================================
+# This minimal workflow validates that GitHub Actions can run successfully
+# It should complete in < 30 seconds
+#
+# Purpose:
+#   - Verify GitHub Actions environment is properly configured
+#   - Test basic checkout and setup steps
+#   - Confirm repository structure is accessible
+#
+# Trigger: Manual only (workflow_dispatch)
+
+name: Validate CI/CD Setup
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Workflow Configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ✅ Validate Repository Structure
+        run: |
+          echo "🔍 Validating repository structure..."
+          
+          # Check for .github/workflows directory
+          if [ -d ".github/workflows" ]; then
+            echo "✅ .github/workflows directory exists"
+          else
+            echo "❌ FAILED: .github/workflows directory not found"
+            exit 1
+          fi
+          
+          # Check for CI/CD workflow file
+          if [ -f ".github/workflows/ci-cd.yml" ]; then
+            echo "✅ ci-cd.yml workflow file exists"
+          else
+            echo "❌ FAILED: ci-cd.yml not found"
+            exit 1
+          fi
+          
+          # Check for services directory
+          if [ -d "services" ]; then
+            echo "✅ services directory exists"
+          else
+            echo "❌ FAILED: services directory not found"
+            exit 1
+          fi
+          
+          # Check for all microservices
+          echo ""
+          echo "🔍 Checking microservices..."
+          for service in service-registry api-gateway flightdata-service llm-summary-service; do
+            if [ -d "services/$service" ]; then
+              echo "✅ services/$service directory exists"
+              
+              # Check for pom.xml
+              if [ -f "services/$service/pom.xml" ]; then
+                echo "  ✅ pom.xml found"
+              else
+                echo "  ❌ FAILED: pom.xml not found in $service"
+                exit 1
+              fi
+              
+              # Check for Dockerfile
+              if [ -f "services/$service/Dockerfile" ]; then
+                echo "  ✅ Dockerfile found"
+              else
+                echo "  ⚠️  WARNING: Dockerfile not found in $service"
+              fi
+            else
+              echo "❌ FAILED: services/$service directory not found"
+              exit 1
+            fi
+          done
+          
+          echo ""
+          echo "✅ All validation checks passed!"
+          echo "🎉 Repository structure is valid for CI/CD pipeline"
+
+      - name: ☕ Test Java Setup
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: ✅ Verify Java Installation
+        run: |
+          echo "🔍 Verifying Java installation..."
+          java -version
+          echo ""
+          echo "✅ Java 17 is properly installed"
+
+      - name: 📋 Validation Summary
+        run: |
+          echo "## ✅ Validation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All checks passed! Your CI/CD pipeline is ready to run." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Push changes to \`main\` or \`develop\` branch" >> $GITHUB_STEP_SUMMARY
+          echo "2. The main CI/CD pipeline will automatically trigger" >> $GITHUB_STEP_SUMMARY
+          echo "3. Monitor the pipeline run in the Actions tab" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Expected Pipeline Duration:" >> $GITHUB_STEP_SUMMARY
+          echo "- Build & Test: ~10-15 minutes" >> $GITHUB_STEP_SUMMARY
+          echo "- Security Scan: ~5-10 minutes" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker Build: ~15-20 minutes (only on main branch)" >> $GITHUB_STEP_SUMMARY
+          echo "- Total: ~15-45 minutes depending on branch and caching" >> $GITHUB_STEP_SUMMARY
