@@ -194,7 +194,8 @@ jobs:
           echo "- flightdata-service" >> $GITHUB_STEP_SUMMARY
           echo "- llm-summary-service" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ job.status }}" = "success" ]; then
+          JOB_STATUS="${{ job.status }}"
+          if [ "$JOB_STATUS" = "success" ]; then
             echo "✅ **Pipeline Status: PASSING**" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **Pipeline Status: FAILING**" >> $GITHUB_STEP_SUMMARY
@@ -305,7 +306,8 @@ jobs:
           echo "| Security Scan | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
-          if [ "${{ needs.build-and-test.result }}" = "success" ]; then
+          BUILD_TEST_RESULT="${{ needs.build-and-test.result }}"
+          if [ "$BUILD_TEST_RESULT" = "success" ]; then
             echo "✅ **Pipeline Status: PASSING**" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **Pipeline Status: FAILING**" >> $GITHUB_STEP_SUMMARY
