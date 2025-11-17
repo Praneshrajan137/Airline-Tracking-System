@@ -117,30 +117,63 @@ jobs:
         run: |
           echo "🧪 Running tests for all microservices..."
           TEST_FAILED=false
+          FAILED_SERVICES=()
           
           for service in service-registry api-gateway flightdata-service llm-summary-service; do
-            echo "🧪 Running tests for $service..."
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🧪 Testing: $service"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
             if [ -f "services/$service/pom.xml" ]; then
               cd services/$service
-              if mvn -B test; then
-                echo "✅ $service tests passed"
+              
+              # Run tests and capture output
+              if mvn -B test 2>&1 | tee /tmp/${service}-test-output.log; then
+                echo "✅ $service: All tests PASSED"
               else
-                echo "❌ $service tests failed"
+                TEST_EXIT_CODE=${PIPESTATUS[0]}
+                echo "❌ $service: Tests FAILED (exit code: $TEST_EXIT_CODE)"
+                FAILED_SERVICES+=("$service")
                 TEST_FAILED=true
+                
+                # Show last 30 lines of test output for debugging
+                echo ""
+                echo "📋 Last 30 lines of test output for $service:"
+                echo "─────────────────────────────────────────────────"
+                tail -n 30 /tmp/${service}-test-output.log || true
+                echo "─────────────────────────────────────────────────"
               fi
+              
               cd ../..
             else
               echo "❌ ERROR: services/$service/pom.xml not found"
+              FAILED_SERVICES+=("$service")
               TEST_FAILED=true
             fi
           done
           
-          if [ "$TEST_FAILED" = true ]; then
-            echo "❌ One or more services have failing tests"
-            exit 1
-          fi
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 Test Summary"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           
-          echo "✅ All tests passed"
+          if [ "$TEST_FAILED" = true ]; then
+            echo "❌ FAILED SERVICES: ${FAILED_SERVICES[*]}"
+            echo ""
+            echo "💡 To debug:"
+            echo "   1. Check the test output above for each failed service"
+            echo "   2. Review test files in services/<service-name>/src/test/java/"
+            echo "   3. Check surefire reports in services/<service-name>/target/surefire-reports/"
+            echo ""
+            exit 1
+          else
+            echo "✅ All services passed tests!"
+            echo "   - service-registry ✅"
+            echo "   - api-gateway ✅"
+            echo "   - flightdata-service ✅"
+            echo "   - llm-summary-service ✅"
+          fi
 
       - name: 📊 Collect Test Results
         if: always()
