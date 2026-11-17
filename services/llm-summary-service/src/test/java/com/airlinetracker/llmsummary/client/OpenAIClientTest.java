@@ -1,6 +1,9 @@
 package com.airlinetracker.llmsummary.client;
 
 import com.airlinetracker.llmsummary.dto.FlightData;
+import com.airlinetracker.llmsummary.config.OpenAIRateLimitConfig;
+import com.airlinetracker.llmsummary.exception.OpenAIProviderException;
+import com.airlinetracker.llmsummary.exception.OpenAIRateLimitExceededException;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.AfterEach;
@@ -8,12 +11,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 
 import java.time.Instant;
+import java.time.Duration;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * TDD Test for OpenAIClient.
@@ -31,13 +39,13 @@ class OpenAIClientTest {
     @BeforeEach
     void setUp() {
         // Start WireMock server
-        wireMockServer = new WireMockServer(8089);
+        wireMockServer = new WireMockServer(0);
         wireMockServer.start();
-        WireMock.configureFor("localhost", 8089);
+        WireMock.configureFor("localhost", wireMockServer.port());
 
         // Create OpenAIClient pointing to WireMock server
-        String baseUrl = "http://localhost:8089";
-        openAIClient = new OpenAIClient(baseUrl, TEST_API_KEY, "gpt-3.5-turbo", 150, 0.7);
+        String baseUrl = "http://localhost:" + wireMockServer.port();
+        openAIClient = new OpenAIClient(baseUrl, TEST_API_KEY, "gpt-6-luna", 150, 0.7);
     }
 
     @AfterEach
@@ -60,7 +68,7 @@ class OpenAIClientTest {
                                   "id": "chatcmpl-123",
                                   "object": "chat.completion",
                                   "created": 1677652288,
-                                  "model": "gpt-3.5-turbo-0613",
+                                  "model": "gpt-6-luna",
                                   "choices": [{
                                     "index": 0,
                                     "message": {
@@ -98,6 +106,20 @@ class OpenAIClientTest {
     }
 
     @Test
+    @DisplayName("Should stop before provider request when the shared quota is exhausted")
+    void testGenerateSummary_QuotaExceeded() {
+        OpenAIRateLimitConfig.RateLimiter limiter = mock(OpenAIRateLimitConfig.RateLimiter.class);
+        when(limiter.allowRequest()).thenReturn(false);
+        OpenAIClient limitedClient = new OpenAIClient(
+                "http://localhost:" + wireMockServer.port(), TEST_API_KEY, "gpt-6-luna", 150, 0.7,
+                CircuitBreakerRegistry.ofDefaults(), limiter, false);
+
+        assertThatThrownBy(() -> limitedClient.generateSummary(createTestFlightData()))
+                .isInstanceOf(OpenAIRateLimitExceededException.class);
+        verify(0, postRequestedFor(urlEqualTo("/chat/completions")));
+    }
+
+    @Test
     @DisplayName("Should handle OpenAI API error (500)")
     void testGenerateSummary_ApiError() {
         // Given: Mock OpenAI API error response
@@ -112,6 +134,26 @@ class OpenAIClientTest {
         assertThatThrownBy(() -> openAIClient.generateSummary(flightData))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("OpenAI API");
+    }
+
+    @Test
+    @DisplayName("Should capture Retry-After without retaining the provider error body")
+    void testGenerateSummary_RateLimitRetryAfter() {
+        stubFor(post(urlEqualTo("/chat/completions"))
+                .willReturn(aResponse()
+                        .withStatus(429)
+                        .withHeader("Retry-After", "2")
+                        .withBody("private provider diagnostic")));
+
+        Throwable failure = catchThrowable(() -> openAIClient.generateSummary(createTestFlightData()));
+
+        assertThat(failure).isInstanceOf(RuntimeException.class);
+        assertThat(failure.getMessage()).doesNotContain("private provider diagnostic");
+        assertThat(failure.getCause()).isInstanceOf(OpenAIProviderException.class);
+        OpenAIProviderException providerFailure = (OpenAIProviderException) failure.getCause();
+        assertThat(providerFailure.getStatusCode()).isEqualTo(429);
+        assertThat(providerFailure.getRetryAfter()).isEqualTo(Duration.ofSeconds(2));
+        assertThat(providerFailure.getMessage()).doesNotContain("private provider diagnostic");
     }
 
     @Test
@@ -207,9 +249,20 @@ class OpenAIClientTest {
 
         // Then: Verify request includes model and parameters
         verify(postRequestedFor(urlEqualTo("/chat/completions"))
-                .withRequestBody(containing("gpt-3.5-turbo"))
-                .withRequestBody(containing("max_tokens"))
-                .withRequestBody(containing("temperature")));
+                .withRequestBody(containing("gpt-6-luna"))
+                .withRequestBody(containing("max_completion_tokens")));
+    }
+
+    @Test
+    @DisplayName("Demo profile returns deterministic text without calling the provider")
+    void testDemoSummary_DoesNotCallProvider() {
+        OpenAIClient demoClient = new OpenAIClient("http://localhost:" + wireMockServer.port(), "",
+                "gpt-6-luna", 150, 0.7, CircuitBreakerRegistry.ofDefaults(), true);
+
+        String result = demoClient.generateSummary(createTestFlightData());
+
+        assertThat(result).contains("Demo summary", "UAL123", "Chicago", "Los Angeles");
+        verify(0, postRequestedFor(urlEqualTo("/chat/completions")));
     }
 
     /**
@@ -225,7 +278,9 @@ class OpenAIClientTest {
                 .scheduledIn(Instant.parse("2025-11-10T14:00:00Z"))
                 .actualIn(null)
                 .origin("KORD")
+                .originCity("Chicago")
                 .destination("KLAX")
+                .destinationCity("Los Angeles")
                 .aircraftType("B738")
                 .latitude(39.8283)
                 .longitude(-98.5795)

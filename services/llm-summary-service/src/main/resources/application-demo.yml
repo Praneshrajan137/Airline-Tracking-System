@@ -1,0 +1,7 @@
+demo:
+  enabled: true
+
+logging:
+  level:
+    com.airlinetracker.llmsummary: INFO
+    org.hibernate.SQL: WARN

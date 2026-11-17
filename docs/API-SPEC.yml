@@ -1,126 +1,200 @@
 openapi: 3.0.0
 info:
-  title: Airline Tracking API
-  version: "1.0.0"
-  description: Real-time flight tracking with AI-powered summaries
-
+  title: Airline Tracker API
+  version: "1.1.0"
+  description: >-
+    Academic and portfolio flight status lookup API. Search returns the
+    provider's available dated candidates; it does not query an arbitrary date
+    or continuously track updates. Selected-instance summaries use fa_flight_id.
 servers:
   - url: http://localhost:8080
-    description: Local development
+    description: Local gateway (bound to loopback by Docker Compose)
 
 paths:
-  /api/v1/flight/{ident}:
+  /api/v1/flight/{ident}/candidates:
     get:
-      summary: Get real-time flight status by flight number
-      operationId: getFlightDataByIdent
+      summary: Find all matching flight instances
+      operationId: findFlightCandidates
       parameters:
-        - name: ident
-          in: path
-          required: true
-          schema:
-            type: string
-            example: "UAL123"
+        - $ref: '#/components/parameters/FlightIdent'
       responses:
         '200':
-          description: Successful response with flight data
+          description: Matching flight instances, each with a stable provider ID
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FlightData'
+        '404':
+          description: No flight instances matched the identifier
+        '429':
+          description: This client or the provider quota has been reached
+        '503':
+          description: Flight data or its quota store is temporarily unavailable
+
+  /api/v1/flight/{ident}/instance/{faFlightId}:
+    get:
+      summary: Retrieve one selected flight instance
+      operationId: getFlightInstance
+      parameters:
+        - $ref: '#/components/parameters/FlightIdent'
+        - name: faFlightId
+          in: path
+          required: true
+          description: Stable FlightAware ID returned by candidate search
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Selected flight instance
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/FlightData'
         '404':
-          description: Flight not found
-        '500':
-          description: Internal server error
+          description: The selected instance is not among the identifier's candidates
 
-  /api/v1/flight/{ident}/summary:
-    get:
-      summary: Get LLM-generated natural-language summary
-      operationId: getFlightSummaryByIdent
+  /api/v1/flight/{ident}/instance/{faFlightId}/summary/retry:
+    post:
+      summary: Request or retry summary generation for a selected instance
+      operationId: requestOrRetryFlightSummary
       parameters:
-        - name: ident
+        - $ref: '#/components/parameters/FlightIdent'
+        - name: faFlightId
           in: path
           required: true
           schema:
             type: string
-            example: "UAL123"
+      responses:
+        '202':
+          description: Event for the selected instance was accepted by Kafka
+        '404':
+          description: The selected instance is not among the identifier's candidates
+        '503':
+          description: Summary event could not be queued
+
+  /api/v1/flight/{ident}:
+    get:
+      summary: Legacy single-result lookup
+      description: Returns a result only when one instance matches. Use candidates for ambiguous identifiers.
+      operationId: getFlightDataByIdent
+      parameters:
+        - $ref: '#/components/parameters/FlightIdent'
       responses:
         '200':
-          description: Successful response with flight summary
+          description: The only matching flight instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightData'
+        '404':
+          description: No flight instance matched
+        '409':
+          description: More than one instance matched; choose from the candidates endpoint
+
+  /api/v1/flight/{ident}/summary/{faFlightId}:
+    get:
+      summary: Get the summary for one selected flight instance
+      operationId: getFlightSummaryByInstance
+      parameters:
+        - $ref: '#/components/parameters/FlightIdent'
+        - name: faFlightId
+          in: path
+          required: true
+          description: Stable ID of the selected flight instance
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Summary for this exact instance
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/FlightSummary'
         '404':
-          description: Summary not yet generated or flight not found
+          description: Summary is not ready or the ID does not match the flight number
+
+  /api/v1/flight/{ident}/summary:
+    get:
+      summary: Legacy summary lookup
+      description: Returns a summary only when one known instance exists for this identifier.
+      operationId: getFlightSummaryByIdent
+      parameters:
+        - $ref: '#/components/parameters/FlightIdent'
+      responses:
+        '200':
+          description: Summary for the only known instance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FlightSummary'
+        '404':
+          description: No summary is available yet
+        '409':
+          description: More than one summary exists; request a specific instance
 
 components:
+  parameters:
+    FlightIdent:
+      name: ident
+      in: path
+      required: true
+      description: Two or three airline letters followed by one to four digits
+      schema:
+        type: string
+        pattern: '^[A-Za-z]{2,3}[0-9]{1,4}$'
+        example: UAL123
   schemas:
     FlightData:
       type: object
-      description: Core flight data from FlightAware AeroAPI
-      required:
-        - fa_flight_id
-        - ident
-        - status
+      required: [fa_flight_id, ident, status, data_source, checked_at]
       properties:
         fa_flight_id:
           type: string
-          example: "UAL123-1678886400-airline-0123"
+          example: UAL123-1678886400-airline-0123
         ident:
           type: string
-          example: "UAL123"
+          example: UAL123
         status:
           type: string
-          example: "En-Route / In Flight"
-        scheduled_out:
-          type: string
-          format: date-time
-        actual_out:
+          example: En-Route / In Flight
+        scheduled_out: { type: string, format: date-time, nullable: true }
+        actual_out: { type: string, format: date-time, nullable: true }
+        scheduled_in: { type: string, format: date-time, nullable: true }
+        actual_in: { type: string, format: date-time, nullable: true }
+        origin: { type: string, nullable: true, example: KORD }
+        destination: { type: string, nullable: true, example: KLAX }
+        origin_name: { type: string, nullable: true, example: Chicago O'Hare International }
+        origin_city: { type: string, nullable: true, example: Chicago }
+        origin_timezone: { type: string, nullable: true, example: America/Chicago }
+        destination_name: { type: string, nullable: true, example: Los Angeles International }
+        destination_city: { type: string, nullable: true, example: Los Angeles }
+        destination_timezone: { type: string, nullable: true, example: America/Los_Angeles }
+        aircraft_type: { type: string, nullable: true, example: B738 }
+        latitude: { type: number, format: double, nullable: true }
+        longitude: { type: number, format: double, nullable: true }
+        altitude: { type: integer, nullable: true }
+        groundspeed: { type: integer, nullable: true }
+        last_position_at:
           type: string
           format: date-time
           nullable: true
-        scheduled_in:
+          description: Provider timestamp for the last reported position
+        checked_at:
           type: string
           format: date-time
-        actual_in:
+          description: Time this service fetched the record; cached records retain their original fetch time
+        data_source:
           type: string
-          format: date-time
-          nullable: true
-        origin:
-          type: string
-          example: "KORD"
-        destination:
-          type: string
-          example: "KLAX"
-        aircraft_type:
-          type: string
-          example: "B738"
-        latitude:
-          type: number
-          format: double
-        longitude:
-          type: number
-          format: double
-        altitude:
-          type: integer
-        groundspeed:
-          type: integer
-
+          enum: [FlightAware AeroAPI, Demo fixture]
     FlightSummary:
       type: object
-      description: AI-generated summary of a flight
-      required:
-        - ident
-        - summary_text
-        - generated_at
+      required: [ident, fa_flight_id, summary_text, generated_at]
       properties:
-        ident:
-          type: string
-          example: "UAL123"
+        ident: { type: string, example: UAL123 }
+        fa_flight_id: { type: string, example: UAL123-1678886400-airline-0123 }
         summary_text:
           type: string
-          example: "United Flight 123 (UAL123) is currently En Route from Chicago (KORD) to Los Angeles (KLAX)."
-        generated_at:
-          type: string
-          format: date-time
-
+          example: Flight UAL123 is en route from Chicago to Los Angeles.
+        generated_at: { type: string, format: date-time }

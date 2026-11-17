@@ -4,9 +4,11 @@ import com.airlinetracker.flightdata.config.RateLimitConfig;
 import com.airlinetracker.flightdata.dto.FlightData;
 import com.airlinetracker.flightdata.exception.FlightNotFoundException;
 import com.airlinetracker.flightdata.exception.RateLimitExceededException;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.Data;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -15,165 +17,148 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.io.IOException;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
-/**
- * FlightAware AeroAPI Client with Rate Limiting
- *
- * Source: PRD.md FR-1 - Third-Party Flight Data Integration
- *
- * Responsibilities:
- * - Call FlightAware AeroAPI to retrieve real-time flight data
- * - Enforce rate limits to protect API free tier ($5 limit)
- * - Add x-apikey authentication header
- * - Handle errors (404, 429, 500, timeout)
- * - Parse JSON response to FlightData DTO
- *
- * Security:
- * - Rate limiting prevents API key misuse
- * - Protects against cost overruns on free tier
- *
- * API Documentation: https://aeroapi.flightaware.com/aeroapi
- */
+/** Client for FlightAware AeroAPI. The demo profile serves clearly labeled local fixtures. */
 @Slf4j
 @Component
 public class FlightAwareClient {
+    private static final int TIMEOUT_SECONDS = 5;
+    private static final ObjectMapper JSON = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private final WebClient webClient;
     private final String apiKey;
     private final RateLimitConfig.RateLimiter rateLimiter;
+    private final boolean demoMode;
 
-    private static final int TIMEOUT_SECONDS = 5;
-
-    /**
-     * Constructor with WebClient, API key, and RateLimiter injection
-     */
     @Autowired
     public FlightAwareClient(
             @Value("${flightaware.base-url:https://aeroapi.flightaware.com/aeroapi}") String baseUrl,
-            @Value("${flightaware.api-key}") String apiKey,
-            RateLimitConfig.RateLimiter rateLimiter) {
-        this.webClient = WebClient.builder()
-                .baseUrl(baseUrl)
-                .build();
-        this.apiKey = apiKey;
-        this.rateLimiter = rateLimiter;
-        log.info("FlightAwareClient initialized with baseUrl: {} and rate limiting enabled", baseUrl);
+            @Value("${flightaware.api-key:}") String apiKey,
+            RateLimitConfig.RateLimiter rateLimiter,
+            @Value("${demo.enabled:false}") boolean demoMode) {
+        this(WebClient.builder().baseUrl(baseUrl).build(), apiKey, rateLimiter, demoMode);
     }
 
-    /**
-     * Constructor for testing (allows injecting custom WebClient)
-     */
     public FlightAwareClient(WebClient webClient, String apiKey, RateLimitConfig.RateLimiter rateLimiter) {
+        this(webClient, apiKey, rateLimiter, false);
+    }
+
+    private FlightAwareClient(WebClient webClient, String apiKey,
+                              RateLimitConfig.RateLimiter rateLimiter, boolean demoMode) {
         this.webClient = webClient;
         this.apiKey = apiKey;
         this.rateLimiter = rateLimiter;
+        this.demoMode = demoMode;
+        if (!demoMode && (apiKey == null || apiKey.isBlank())) {
+            throw new IllegalStateException("FLIGHTAWARE_API_KEY is required unless the demo profile is enabled");
+        }
     }
 
-    /**
-     * Get flight data by ident (flight number)
-     *
-     * @param ident Flight identifier (e.g., "UAL123")
-     * @return Mono<FlightData> containing flight information
-     * @throws FlightNotFoundException if flight is not found (404)
-     * @throws RateLimitExceededException if rate limit is exceeded
-     * @throws RuntimeException for other errors
-     */
+    /** Compatibility helper for callers that expect one record. */
     public Mono<FlightData> getFlightByIdent(String ident) {
-        log.debug("Fetching flight data for ident: {}", ident);
+        return getFlightsByIdent(ident).flatMap(flights -> flights.isEmpty()
+                ? Mono.error(new FlightNotFoundException(ident))
+                : Mono.just(flights.get(0)));
+    }
 
-        // Check rate limit BEFORE making API call
+    /** Return every matching instance so callers can select the correct date and leg. */
+    public Mono<List<FlightData>> getFlightsByIdent(String ident) {
+        if (demoMode) {
+            List<FlightData> fixtures = DemoFlightFixtures.find(ident);
+            return fixtures.isEmpty() ? Mono.error(new FlightNotFoundException(ident)) : Mono.just(fixtures);
+        }
         if (!rateLimiter.allowRequest()) {
-            RateLimitConfig.UsageStats stats = rateLimiter.getUsageStats();
-            String errorMsg = String.format(
-                "⚠️ FlightAware API rate limit exceeded! %s - Protecting your $5 free tier",
-                stats.toString()
-            );
-            log.error(errorMsg);
-            return Mono.error(new RateLimitExceededException(errorMsg));
+            return Mono.error(new RateLimitExceededException(
+                    "Flight data provider limit reached. Please retry later."));
         }
 
-        // Log current usage for monitoring
-        RateLimitConfig.UsageStats stats = rateLimiter.getUsageStats();
-        log.info("FlightAware API call allowed - Current usage: {}", stats);
-
-        return webClient
-                .get()
+        return webClient.get()
                 .uri("/flights/{ident}", ident)
                 .header("x-apikey", apiKey)
                 .exchangeToMono(response -> {
-                    log.info("🔍 FlightAware API response status: {}", response.statusCode());
-                    return response.bodyToMono(String.class)
-                            .doOnNext(body -> log.info("🔍 Raw FlightAware response body: {}", body))
-                            .flatMap(body -> {
-                                try {
-                                    com.fasterxml.jackson.databind.ObjectMapper mapper =
-                                        new com.fasterxml.jackson.databind.ObjectMapper();
-                                    mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
-                                    mapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-                                    FlightAwareResponse parsed = mapper.readValue(body, FlightAwareResponse.class);
-                                    return Mono.just(parsed);
-                                } catch (Exception e) {
-                                    log.error("❌ Failed to parse FlightAware response: {}", e.getMessage(), e);
-                                    return Mono.error(e);
-                                }
-                            });
-                })
-
-                .doOnNext(response -> {
-                    log.info("🔍 FlightAware API Response - flights array size: {}, num_pages: {}",
-                            (response != null && response.getFlights() != null) ? response.getFlights().size() : "null",
-                            (response != null) ? response.getNumPages() : "null");
-                    if (response != null && response.getFlights() != null && !response.getFlights().isEmpty()) {
-                        log.info("🔍 First flight in array - ident: {}, status: {}, fa_flight_id: {}",
-                                response.getFlights().get(0).getIdent(),
-                                response.getFlights().get(0).getStatus(),
-                                response.getFlights().get(0).getFaFlightId());
+                    if (response.statusCode().is2xxSuccessful()) {
+                        return response.bodyToMono(String.class).map(this::parseCandidates);
                     }
+                    if (response.statusCode().value() == 404) {
+                        return response.releaseBody().then(Mono.error(new FlightNotFoundException(ident)));
+                    }
+                    if (response.statusCode().value() == 429) {
+                        return response.releaseBody().then(Mono.error(new RateLimitExceededException(
+                                "Flight data provider rate limit reached. Please retry later.")));
+                    }
+                    int status = response.statusCode().value();
+                    HttpStatus resolved = HttpStatus.resolve(status);
+                    return response.releaseBody().then(Mono.error(new IllegalStateException(
+                            "Flight data provider returned HTTP " + (resolved == null ? status : resolved.value()))));
                 })
                 .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
-                .map(response -> {
-                    // FlightAware returns array of flights, extract first one
-                    log.info("🔍 Mapping response - response null? {}, flights null? {}, flights empty? {}",
-                            response == null,
-                            (response != null && response.getFlights() == null),
-                            (response != null && response.getFlights() != null && response.getFlights().isEmpty()));
-
-                    if (response != null && response.getFlights() != null && !response.getFlights().isEmpty()) {
-                        FlightData flight = response.getFlights().get(0);
-                        log.info("✅ Successfully fetched flight data: {} ({})",
-                                flight.getIdent(), flight.getStatus());
-                        return flight;
-                    } else {
-                        log.error("❌ FlightAware returned empty or null flights array for: {} - Response: {}",
-                                ident, response);
-                        throw new FlightNotFoundException(ident);
-                    }
-                })
-                .doOnError(error -> {
-                    log.error("❌ Error fetching flight data for {}: {} (Type: {})",
-                            ident, error.getMessage(), error.getClass().getSimpleName());
-                    if (error.getCause() != null) {
-                        log.error("❌ Caused by: {}", error.getCause().getMessage());
-                    }
-                });
+                .flatMap(flights -> flights.isEmpty()
+                        ? Mono.error(new FlightNotFoundException(ident))
+                        : Mono.just(flights))
+                .doOnError(error -> log.warn("Flight lookup failed for {} ({})", ident,
+                        error.getClass().getSimpleName()));
     }
 
-    /**
-     * FlightAware API response wrapper.
-     * The /flights/{ident} endpoint returns an array of flights, not a single flight.
-     */
-    @Data
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private static class FlightAwareResponse {
-        @JsonProperty("flights")
-        private List<FlightData> flights;
+    private List<FlightData> parseCandidates(String responseBody) {
+        try {
+            JsonNode rows = JSON.readTree(responseBody).path("flights");
+            if (!rows.isArray()) return List.of();
+            List<FlightData> flights = new ArrayList<>();
+            for (JsonNode row : rows) {
+                ObjectNode normalized = row.deepCopy();
+                normalizeAirport(normalized, "origin");
+                normalizeAirport(normalized, "destination");
+                normalizePosition(normalized);
+                flights.add(JSON.treeToValue(normalized, FlightData.class));
+            }
+            return flights;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Flight data provider returned an unreadable response", exception);
+        }
+    }
 
-        @JsonProperty("links")
-        private Object links;
+    private void normalizeAirport(ObjectNode flight, String field) {
+        JsonNode airport = flight.get(field);
+        if (airport == null || !airport.isObject()) return;
+        String code = firstText(airport, "code", "code_icao", "code_iata");
+        if (code != null) flight.put(field, code);
+        copyText(airport, "name", flight, field + "_name");
+        copyText(airport, "city", flight, field + "_city");
+        copyText(airport, "timezone", flight, field + "_timezone");
+    }
 
-        @JsonProperty("num_pages")
-        private Integer numPages;
+    private void normalizePosition(ObjectNode flight) {
+        JsonNode position = flight.get("last_position");
+        if (position == null || !position.isObject()) return;
+        copyIfAbsent(position, "latitude", flight);
+        copyIfAbsent(position, "longitude", flight);
+        copyIfAbsent(position, "altitude", flight);
+        copyIfAbsent(position, "groundspeed", flight);
+        copyText(position, "timestamp", flight, "last_position_at");
+    }
+
+    private static void copyText(JsonNode from, String source, ObjectNode to, String target) {
+        JsonNode value = from.get(source);
+        if (value != null && !value.isNull()) to.put(target, value.asText());
+    }
+
+    private static void copyIfAbsent(JsonNode from, String field, ObjectNode to) {
+        if (to.has(field) && !to.get(field).isNull()) return;
+        JsonNode value = from.get(field);
+        if (value != null && !value.isNull()) to.set(field, value);
+    }
+
+    private static String firstText(JsonNode node, String... fields) {
+        for (String field : fields) {
+            JsonNode value = node.get(field);
+            if (value != null && !value.isNull() && !value.asText().isBlank()) return value.asText();
+        }
+        return null;
     }
 }

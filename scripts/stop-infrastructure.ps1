@@ -1,15 +1,7 @@
-# Stop Infrastructure Script
-# Stops all infrastructure services
-
-Write-Host "=== Stopping Airline Tracker Infrastructure ===" -ForegroundColor Cyan
-Write-Host ""
+$ErrorActionPreference = "Stop"
+$projectRoot = Split-Path -Parent $PSScriptRoot
+Set-Location $projectRoot
 
 docker compose down
-
-Write-Host ""
-Write-Host "✓ Infrastructure services stopped" -ForegroundColor Green
-Write-Host ""
-Write-Host "To remove volumes (data will be lost), run:" -ForegroundColor Yellow
-Write-Host "  docker compose down -v" -ForegroundColor Gray
-Write-Host ""
-
+if ($LASTEXITCODE -ne 0) { throw "The local Compose stack did not stop cleanly." }
+Write-Host "Local demo stopped. Named volumes were preserved."

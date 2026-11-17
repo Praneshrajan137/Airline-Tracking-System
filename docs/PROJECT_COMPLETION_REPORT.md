@@ -1,517 +1,118 @@
-# 🎉 PROJECT COMPLETION REPORT
-## Airline Tracking System - Production Ready
+# Project completion report
 
-**Project Status:** ✅ **COMPLETE & PRODUCTION READY**  
-**Completion Date:** November 18, 2025  
-**Version:** 1.0.0
+**Review date:** 2026-11-17
+**Project:** Airline Tracker
+**Assessment:** Implemented as a local portfolio demo with a tested guest journey. Full composed runtime, live provider behavior, traveler need, and production readiness remain unverified.
 
----
+## Results and evidence
 
-## 📊 Executive Summary
+The product now has a no-account demo journey: search a flight number, choose among dated candidate instances when needed, see source and time context, and request a summary bound to the chosen flight's stable ID. The demo uses named fixtures and deterministic summary text; it does not require or call FlightAware or OpenAI.
 
-### Development Metrics
+Evidence gathered in this workspace:
 
-| Metric | Value | Status |
-|--------|-------|--------|
-| **Development Time** | 4 weeks | ✅ On Schedule |
-| **Total Lines of Code** | **13,319 lines** | ✅ Complete |
-| **Java Code** | 4,383 lines (39 files) | ✅ Production Quality |
-| **Test Coverage** | **>90%** (40/40 tests passing) | ✅ Exceeds Target |
-| **Services Deployed** | 4 microservices | ✅ All Operational |
-| **Documentation** | 4,102 lines (18 files) | ✅ Comprehensive |
-| **Infrastructure Code** | 1,823 lines (15 YAML files) | ✅ Production Ready |
+- Frontend: **4 tests passed across 2 files**. The UI tests select a second `UAL123` instance, observe the initial summary-unavailable state, retry that exact instance, verify that no summary request is queued before selection, and check that both fixture rows are labeled before selection. API tests cover aborting a request at its deadline and a response body that stalls after headers.
+- Frontend production build: `tsc -b && vite build` passed on Vite 6.4.6.
+- Service registry: **5 tests passed** in the module test run.
+- Flight-data service: **19 focused tests passed** across provider parsing, dated demo fixtures, service, controller, and quota enforcement.
+- Summary service: **45 focused tests passed** across provider request handling, selected-instance retrieval, controller, service, repository, global quota enforcement, Kafka retry policy, JSON DLT serialization, topic/partition routing, failed DLT-send handling, and inherited consumer/producer security properties.
+- API gateway: **5 tests passed**, covering configured routing and guest/protected route behavior.
+- Both `docker compose config --quiet` and `docker compose -f integration-tests/docker-compose.e2e.yml config --quiet` passed.
+- A Compose override check resolved `KAFKA_TOPIC_FLIGHT_DATA=airline-demo-events` to the same topic in both services and passed `KAFKA_TOPIC_PARTITIONS=4` plus `KAFKA_TOPIC_REPLICATION_FACTOR=2` to the DLT service.
+- Integration test Java sources compiled with `mvn -B -ntp -DskipTests test-compile`; the E2E suite did not run.
+- A concurrent run once timed out a FlightAware WireMock test. Its isolated rerun passed, and both WireMock suites now choose ephemeral ports to avoid conflicts between Maven modules.
+- Docker runtime inspection failed because the Docker Desktop Linux engine pipe was unavailable. No images were built and no Compose service was started. These results do not prove end-to-end behavior.
+- The browser host was unavailable for visual inspection. No live-browser, device-size, or accessibility audit was completed.
 
-### Code Distribution
+No provider key values were read and no paid/live provider requests were made. The test counts above describe focused or named suites, not total repository coverage. No coverage percentage, latency, uptime, capacity, or cost result is claimed.
 
-```
-📦 Total Project: 13,319 lines across 89 files
-├── 🔷 Java (Production Code):     4,383 lines (33%)
-├── 📖 Documentation (Markdown):   4,102 lines (31%)
-├── ⚙️  Configuration (YAML):      1,823 lines (14%)
-├── 🔧 Scripts (PowerShell/Bash):  1,777 lines (13%)
-├── 📦 Build (Maven XML):            577 lines (4%)
-├── 🎨 Frontend (JSON):              620 lines (5%)
-└── 💾 Database (SQL):                37 lines (<1%)
-```
+## Reproduction
 
-### Service Architecture
+Run from the repository root unless a service directory is shown:
 
-| Service | Port | Lines of Code | Tests | Status |
-|---------|------|---------------|-------|--------|
-| **service-registry** | 8761 | ~200 lines | 5/5 ✅ | Production Ready |
-| **api-gateway** | 8080 | ~250 lines | 5/5 ✅ | Production Ready |
-| **flightdata-service** | 8081 | ~1,800 lines | 5/5 ✅ | Production Ready |
-| **llm-summary-service** | 8082 | ~2,133 lines | 25/25 ✅ | Production Ready |
-
----
-
-## 🏆 Technical Achievements
-
-### 1. Event-Driven Architecture with Kafka ✅
-
-**Implementation:**
-- Asynchronous event streaming between microservices
-- Topic: `flight-data-events` with 3 partitions
-- Producer: FlightData Service (publishes on cache miss)
-- Consumer: LLM Summary Service (generates AI summaries)
-- Retry logic: 3 attempts with exponential backoff
-
-**Performance:**
-- ✅ Message processing: **< 1 second** (Target: < 2s)
-- ✅ Zero message loss with persistent topics
-- ✅ Dead letter queue for failed processing
-- ✅ Consumer group coordination working perfectly
-
-**Evidence:**
-- Phase 5 E2E Test: Kafka event published and consumed in < 1s
-- All 5/5 integration tests passed with Kafka orchestration
-
----
-
-### 2. Sub-100ms Cache Response Times ✅
-
-**Implementation:**
-- Redis Cache-Aside pattern with 5-minute TTL
-- Key pattern: `flight:{ident}`
-- JSON serialization with Jackson (type-safe)
-- Distributed caching across service instances
-
-**Performance Metrics:**
-- ✅ **Cache Hit Latency: 31ms** (Target: < 500ms) - **1,838% faster than target**
-- ✅ **Cache Miss Latency: 31ms** (Target: < 2,000ms) - **6,445% faster than target**
-- ✅ Cache hit rate: Expected 80%+ in production
-- ✅ Zero cache-related errors in E2E tests
-
-**Evidence:**
-```
-Test 2: Cache Hit Performance
-- First request: 31ms (cache miss → API call)
-- Second request: 31ms (cache hit → Redis)
-- FlightAware API called only once ✅
-- Performance improvement: Consistent sub-100ms
+```powershell
+cd frontend
+npm ci
+npm test
+npm run build
 ```
 
-**Source:** `integration-tests/PHASE5_TEST_RESULTS.md` - Lines 26-27
-
----
-
-### 3. 100% E2E Test Pass Rate ✅
-
-**Test Suite Results:**
-
-| Test # | Test Name | Status | Duration |
-|--------|-----------|--------|----------|
-| 1 | Happy Path - Complete Flow | ✅ PASSED | ~4s |
-| 2 | Cache Hit Performance | ✅ PASSED | ~0.6s |
-| 3 | Error Handling - Flight Not Found | ✅ PASSED | ~0.1s |
-| 4 | Error Handling - FlightAware API Down | ✅ PASSED | ~0.1s |
-| 5 | Error Handling - OpenAI Rate Limit | ✅ PASSED | ~3s |
-
-**Summary:**
-- **Tests Run:** 5 E2E integration tests
-- **Failures:** 0
-- **Errors:** 0
-- **Skipped:** 0
-- **Success Rate:** **100%** (5/5)
-- **Total Execution Time:** 13.584 seconds
-
-**Unit & Integration Tests:**
-- **service-registry:** 5/5 tests passing ✅
-- **api-gateway:** 5/5 tests passing ✅
-- **flightdata-service:** 5/5 tests passing ✅
-- **llm-summary-service:** 25/25 tests passing ✅
-- **Total:** **40/40 tests passing (100%)**
-
-**Test Coverage:**
-- OpenAI Client: 6/6 tests (error handling, timeouts, validation)
-- Repository Layer: 8/8 tests (CRUD, queries, constraints)
-- Service Layer: 6/6 tests (business logic, error propagation)
-- Controller Layer: 5/5 tests (REST API, validation, error responses)
-
-**Evidence:** `integration-tests/PHASE5_TEST_RESULTS.md` - Lines 9-18
-
----
-
-### 4. Production CI/CD Pipeline ✅
-
-**Pipeline Architecture:**
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    CI/CD PIPELINE FLOW                       │
-└─────────────────────────────────────────────────────────────┘
-
-    ┌──────────────────┐
-    │ build-and-test   │  ← JOB 1: Build + Test (15 min)
-    └────────┬─────────┘
-             │
-             ├────────────────┬─────────────────┐
-             │                │                 │
-    ┌────────▼─────────┐ ┌───▼──────────────┐ │
-    │ security-scan    │ │ performance-test │ │
-    │ (SAST + Deps)    │ │ (Load Testing)   │ │
-    └────────┬─────────┘ └──────────────────┘ │
-             │                                 │
-    ┌────────▼─────────┐                      │
-    │ docker-build-push│ ← JOB 3: Container Registry
-    │ (ghcr.io)        │
-    └────────┬─────────┘
-             │
-    ┌────────▼─────────┐
-    │ pipeline-summary │ ← JOB 5: Status Reporting
-    └──────────────────┘
+```powershell
+cd services/service-registry
+mvn -B -ntp test
+cd ../flightdata-service
+mvn -B -ntp "-Dtest=FlightAwareClientTest,DemoFlightFixturesTest,FlightDataServiceTest,FlightControllerTest,RateLimitConfigTest" test
+cd ../llm-summary-service
+mvn -B -ntp "-Dtest=OpenAIClientTest,OpenAIRateLimitConfigTest,KafkaConsumerConfigTest,SummaryControllerTest,SummaryServiceTest,FlightSummaryRepositoryTest" test
+cd ../api-gateway
+mvn -B -ntp test
 ```
 
-**Pipeline Features:**
-- ✅ **Automated Testing:** All 40 tests run on every commit
-- ✅ **Security Scanning:** SAST + dependency vulnerability checks
-- ✅ **Performance Testing:** Load tests with 100 concurrent users
-- ✅ **Docker Build:** Multi-stage builds for optimized images
-- ✅ **Container Registry:** Automated push to GitHub Container Registry
-- ✅ **Status Reporting:** Comprehensive pipeline summaries
-
-**Pipeline Metrics:**
-- **Total Jobs:** 5 (parallel execution where possible)
-- **Total Lines:** 974 lines of YAML
-- **Services Built:** 4 microservices
-- **Test Coverage Enforcement:** 90% minimum
-- **Deployment Target:** GitHub Container Registry (ghcr.io)
-
-**Evidence:** `.github/workflows/PIPELINE-COMPLETE.md` - Lines 429-435
-
----
-
-### 5. Additional Technical Achievements
-
-#### A. Microservices Architecture
-- ✅ 4 independent, scalable services
-- ✅ Service discovery via Netflix Eureka
-- ✅ API Gateway with Spring Cloud Gateway (reactive)
-- ✅ Client-side load balancing with Ribbon
-
-#### B. External API Integration
-- ✅ FlightAware AeroAPI integration with rate limiting
-- ✅ OpenAI GPT-3.5-turbo for AI summaries
-- ✅ Retry logic with exponential backoff
-- ✅ Circuit breaker pattern for resilience
-
-#### C. Data Persistence
-- ✅ PostgreSQL for summary storage
-- ✅ JPA with Hibernate ORM
-- ✅ Transaction management with `@Transactional`
-- ✅ Automatic timestamp management (`@PrePersist`, `@PreUpdate`)
-
-#### D. Observability
-- ✅ Custom Prometheus metrics (cache hits/misses, API duration)
-- ✅ Structured logging with SLF4J
-- ✅ Health checks on all services (`/actuator/health`)
-- ✅ Grafana dashboards configured
-
-#### E. Security & Cost Protection
-- ✅ Rate limiting: FlightAware (13/day), OpenAI (100/day)
-- ✅ Pre-flight checks block calls before cost incurred
-- ✅ Redis-backed distributed counters
-- ✅ Budget protection: $0.45/month actual vs $10 budget (95.5% buffer)
-
----
-
-## 🎯 Production Readiness Score
-
-### Detailed Assessment
-
-| Category | Score | Evidence | Status |
-|----------|-------|----------|--------|
-| **Code Quality** | 10/10 | SOLID principles, Clean Code, 13,319 LOC | ✅ EXCELLENT |
-| **Test Coverage** | 10/10 | 40/40 tests passing, >90% coverage, 100% E2E pass rate | ✅ EXCELLENT |
-| **Performance** | 10/10 | 31ms cache hits (1838% faster), sub-1s Kafka processing | ✅ EXCELLENT |
-| **Security** | 9/10 | Rate limiting, secrets management, input validation | ✅ STRONG |
-| **Monitoring** | 10/10 | Prometheus metrics, health checks, structured logging | ✅ EXCELLENT |
-| **Documentation** | 10/10 | 4,102 lines across 18 files, comprehensive guides | ✅ EXCELLENT |
-
-### Overall Score: **59/60 (98.3%)**
-
-**Grade:** **A+** - Production Ready
-
----
-
-## 📈 Performance Benchmarks
-
-### Actual vs Target Performance
-
-| Metric | Target | Actual | Improvement | Status |
-|--------|--------|--------|-------------|--------|
-| **Cache Hit Latency** | < 500ms | **31ms** | **1,838% faster** | ✅ EXCELLENT |
-| **Cache Miss Latency** | < 2,000ms | **31ms** | **6,445% faster** | ✅ EXCELLENT |
-| **LLM Processing Time** | < 5s | **2-3s** | **40-60% faster** | ✅ GOOD |
-| **Full E2E Flow** | < 10s | **~4s** | **150% faster** | ✅ EXCELLENT |
-| **Kafka Message Processing** | < 2s | **< 1s** | **100% faster** | ✅ EXCELLENT |
-
-**Performance Highlights:**
-- 🚀 All metrics exceed targets by significant margins
-- 🚀 Cache working perfectly (FlightAware API called only once per flight)
-- 🚀 OpenAI retry logic validated (429 rate limit → successful retry)
-- 🚀 Zero performance degradation under load
-
-**Source:** `integration-tests/PHASE5_TEST_RESULTS.md` - Lines 23-36
-
----
-
-## 🔍 Features Validated
-
-### ✅ Complete Feature Coverage (8/8)
-
-1. **API Gateway Routing** ✅
-   - Requests properly routed to FlightData and LLM Summary services
-   - Service discovery via Eureka working
-   - Load balancing across service instances
-
-2. **Redis Caching** ✅
-   - Cache miss → fetches from API
-   - Cache hit → returns from Redis (31ms)
-   - Type-safe serialization/deserialization
-   - TTL configuration (5 minutes)
-
-3. **Kafka Event Streaming** ✅
-   - Events published to `flight-data-events` topic
-   - Events consumed by LLM Summary Service
-   - Asynchronous processing working
-   - Zero message loss
-
-4. **OpenAI LLM Integration** ✅
-   - Flight data summarized by LLM
-   - Rate limit handling (429 → retry → success)
-   - Summaries saved to PostgreSQL
-   - Token usage optimized (gpt-3.5-turbo)
-
-5. **PostgreSQL Persistence** ✅
-   - Summaries persisted correctly
-   - Queries by flight ident working
-   - Transaction management (saveAndFlush)
-   - Automatic timestamp management
-
-6. **Error Handling** ✅
-   - 404 Not Found (invalid flight)
-   - 500 Server Error (API down)
-   - 429 Rate Limit (retry with exponential backoff)
-   - Proper HTTP status codes
-
-7. **Service Discovery** ✅
-   - All services register with Eureka on startup
-   - Dynamic service location working
-   - Health checks passing
-
-8. **Monitoring & Observability** ✅
-   - Custom Prometheus metrics
-   - Structured logging
-   - Health check endpoints
-   - Grafana dashboards
-
-**Source:** `integration-tests/PHASE5_TEST_RESULTS.md` - Lines 57-90
-
----
-
-## 🐛 Critical Bugs Fixed
-
-### Phase 5 Bug Fixes (7 Issues Resolved)
-
-| Fix # | Issue | Solution | Impact |
-|-------|-------|----------|--------|
-| **#1** | Kafka env var mismatch | Changed `SPRING_KAFKA_BOOTSTRAP_SERVERS` to `KAFKA_BOOTSTRAP_SERVERS` | ✅ Kafka consumer connects |
-| **#2** | Summaries not visible in tests | Changed `save()` to `saveAndFlush()` | ✅ Immediate DB commit |
-| **#3-5** | Kafka consumer debugging | Added detailed logging in consumer, client, config | ✅ Full pipeline visibility |
-| **#6** | REST API field mismatch | Renamed `summary` to `summary_text` in DTO | ✅ API spec compliance |
-| **#7** | Redis deserialization error | Added `activateDefaultTyping()` to ObjectMapper | ✅ Cache hits work perfectly |
-
-### Fix #7 Details (Most Critical)
-
-**Problem:**
-```
-ClassCastException: class java.util.LinkedHashMap cannot be cast to 
-class com.airlinetracker.flightdata.dto.FlightData
+```powershell
+cd <repository-root>
+docker compose config --quiet
+docker compose -f integration-tests/docker-compose.e2e.yml config --quiet
+cd integration-tests
+mvn -B -ntp -DskipTests test-compile
+cd ..
+.\scripts\deploy.ps1
 ```
 
-**Root Cause:** Redis was deserializing cached objects as `LinkedHashMap` instead of `FlightData`
+The local launcher and full Compose E2E run require Docker Desktop and were **not** executed successfully in this environment. After the demo starts, the intended local walkthrough is in [PITCH-AND-DEMO.md](PITCH-AND-DEMO.md); operations and recovery steps are in [RUNBOOK.md](RUNBOOK.md).
 
-**Solution:** Configured Jackson `ObjectMapper` to store type information in JSON:
-```java
-BasicPolymorphicTypeValidator ptv = BasicPolymorphicTypeValidator.builder()
-    .allowIfBaseType(Object.class)
-    .build();
-objectMapper.activateDefaultTyping(ptv, ObjectMapper.DefaultTyping.NON_FINAL);
-```
+## Seven-standard scorecard
 
-**Result:** Cache hits now properly deserialize to `FlightData` ✅
+“At start” describes what the repository claimed before this implementation; those claims were not accepted as proof. “At end” records the evidence and limits now available.
 
-**Source:** `integration-tests/PHASE5_TEST_RESULTS.md` - Lines 93-122
+| Standard | At start | At end | Evidence and how to reproduce it | Status |
+| --- | --- | --- | --- | --- |
+| 1. Genuine, non-trivial, working | Described as production-ready and fully operational, with unsupported metrics. | Real candidate parsing, dated-instance selection, ID-bound summary retrieval, demo fixtures, quota enforcement, and bounded Kafka recovery are implemented. Focused component tests and a UI journey pass; composed runtime has not run. | Reproduce the service and frontend commands above. Clean Compose run is still required to prove the whole product works together. | Estimated — components verified; end-to-end unverified |
+| 2. End to end; problem, audience, value clear | Claimed complete end-to-end operation without reproducible evidence. | First-time copy explains guest lookup and ambiguity; sample inputs, pending/error/retry states, and source labels exist. The stated value is selecting the intended dated flight and seeing its instance-specific summary. | `cd frontend; npm test; npm run build`; inspect [PITCH-AND-DEMO.md](PITCH-AND-DEMO.md). Full service journey awaits Docker. | Estimated |
+| 3. Real problem and audience, addressed | Presented broad traveler value as established. | The intended audience is a traveler or flight follower who encounters repeated flight numbers. This is a product hypothesis; no traveler interviews or observed usability sessions were available. | Validate with moderated sessions and compare task completion/confusion against FlightAware, Flightradar24, and Flighty. Current evidence is in [PRD.md](PRD.md) and [FRONTIER.md](FRONTIER.md). | Unverified |
+| 4. Complete, coherent experience | Claimed comprehensive feature coverage and healthy deployment. | Search, candidate choice, details, summary pending/error/retry, and pre-selection demo labeling have implementation coverage. Cross-service recovery, visual/browser/device states, and accessibility have not been demonstrated in a running app. | UI journey test and build commands above; then run the documented Compose demo and exercise empty, invalid, unavailable, and recovery cases. | Estimated |
+| 5. Creative, novel, different | Claimed technical achievements without comparative evidence. | Selecting a dated candidate and binding the summary to `fa_flight_id` is a concrete ambiguity safeguard. It is not established as novel or more useful than existing products. | Read [FRONTIER.md](FRONTIER.md), which names four products and distinguishes vendor claims from independent measurements. Novelty and advantage need broader comparison and user evidence. | Unverified |
+| 6. Finished and polished | Reported 100% coverage and “A+” polish without evidence. | Product copy, local demo, docs, request errors, time formatting fallback, summary retry, and focused UI behavior were revised. No visual QA in a live browser, accessibility audit, or composed acceptance run occurred. | Frontend test/build and Compose runbook above; visual and assistive-technology review remain follow-up work. | Estimated |
+| 7. Deployable, scalable, reproducible | Claimed production readiness, scale, security, CI/CD, and monitoring. | Multi-stage Dockerfiles build from repository context and set a non-root Java user; Compose YAML validates; app and monitoring ports bind to loopback and the launcher forces fixtures. JSON DLT publishing, Kafka consumer/producer security-property inheritance, and a configurable DLT topic declaration are configured. Image build/start, clean-machine reproducibility, capacity, backup restore, TLS, and production security are unverified. | Both Compose config checks passed. Docker image build/start and realistic operations/load/security exercises are still required. | Unverified |
+| Preserved behavior | Prior report claimed broad existing API behavior, without a reliable baseline. | Legacy single-flight lookup remains alongside candidate and selected-instance routes. Gateway permits intended guest flight routes and denies auth/unknown routes. Focused controller/gateway tests exercise these behaviors. | Run `FlightControllerTest` in the flight-data command and `mvn -B -ntp test` in `services/api-gateway`. Live compatibility with external clients is not established. | Verified in tested route scope |
 
----
+## Claims ledger
 
-## 🚀 Deployment Status
+The detailed ledger is maintained in [CLAIMS-LEDGER.md](CLAIMS-LEDGER.md). Its status is:
 
-### Infrastructure Verified (8/8 Services)
+- **Proven in code and focused tests:** candidate rows are retained and visibly labeled before selection; a visitor can select an instance; selected summary requests use its stable ID; source/check/position time context is present; gateway guest routes are allowed and unrelated routes are denied. The Kafka serializer emits a JSON FlightData value and the DLT topic declaration uses the configured partition count.
+- **Implemented, runtime not yet proven:** no-account local demo with clearly labeled fixtures; full backend-to-browser flow; compose-based service recovery.
+- **Unverified:** live FlightAware credentials and response contract; OpenAI model/account entitlement and real request; user need and usability; comparative novelty; latency, availability, scale, cost, and production readiness.
+- Prior claims of “production ready,” “real-time,” a 31 ms response, 99.9% uptime, 100 concurrent users, 90% test coverage, and a monthly provider cost were removed from current product copy because evidence did not support them.
 
-| Service | Status | Port | Health | Resource Usage |
-|---------|--------|------|--------|----------------|
-| **Service Registry** (Eureka) | Running | 8761 | ✅ Healthy | 512MB RAM |
-| **API Gateway** | Running | 8080 | ✅ Healthy | 1GB RAM |
-| **FlightData Service** | Running | 8081 | ✅ Healthy | 1GB RAM |
-| **LLM Summary Service** | Running | 8082 | ✅ Healthy | 2GB RAM |
-| **PostgreSQL Database** | Running | 5432 | ✅ Healthy | 4GB RAM |
-| **Redis Cache** | Running | 6379 | ✅ Healthy | 2GB RAM |
-| **Kafka + Zookeeper** | Running | 9092/2181 | ✅ Healthy | 4GB RAM |
-| **WireMock** (Test Mock) | Running | 8089 | ✅ Running | 512MB RAM |
+## Frontier position
 
-**Total Infrastructure:** 8 services, all healthy, orchestrated via Docker Compose
+The calibration in [FRONTIER.md](FRONTIER.md) is a desk review of public product material, not a hands-on benchmark. The named products and published strengths are:
 
-**Source:** `integration-tests/PHASE5_TEST_RESULTS.md` - Lines 42-53
+| Product | Publicly documented strength used for comparison | This project's demonstrated position |
+| --- | --- | --- |
+| FlightAware | Broad tracker and alerts; vendor FAQ describes typical delay and position lag. | Uses its API integration when configured, but no live request or freshness measurement was made. |
+| Flightradar24 | Global map, lookup, history, and alerts; network/volume figures are vendor-published. | No map, history, or alerts. |
+| Flighty | Trip-focused notifications, inbound-aircraft context, and delay predictions. | No saved trip, inbound monitoring, prediction, or push alert. |
+| Cirium FlightStats | Status API, dated records, feed, and alerts; its feed update interval is vendor-published. | No feed, event subscription, or alert service. |
 
----
+Across lookup identity, provenance, freshness, follow-up, and entry friction, the product currently demonstrates only local guest lookup, explicit candidate selection, an ID-bound summary, and source/time labels. It does not demonstrate superiority on live data, feature depth, or traveler outcomes. See [FlightAware freshness FAQ](https://www.flightaware.com/about/faq/), [Flightradar24 product features](https://www.flightradar24.com/apps), [Flighty notifications](https://flighty.com/help/flighty-notifications), and [Cirium Flight Status Feed](https://developer.cirium.com/apis/flightstats-apis/flight-status-feed). These are vendor descriptions; no independent competitor measurement was performed.
 
-## 📚 Documentation Deliverables
+## Panel verdicts
 
-### Comprehensive Documentation (18 Files, 4,102 Lines)
+- **Architecture and operations:** setup guides preserve an existing `.env`; launchers force the fixture profile; Compose validates; Java containers run as non-root; and external test ports bind to loopback. The shared Kafka topic setting now aligns producer and consumer, while only the DLT is auto-declared; managed Kafka permission and partition requirements are documented. No deployment, HA, backup, alerting, or capacity evidence exists; Docker runtime remains unavailable.
+- **Domain and first-time user:** each candidate row now exposes its data source before selection, and the action is labeled "Search Flight." The journey reads as a checked snapshot and demo fixture. Audience value and live provider semantics remain unverified without user sessions and a running stack.
+- **Adversarial review:** loopback-only E2E ports, request-body deadlines, provider error-body removal, bounded retry policy, and DLT recovery were reviewed. The DLT serializer and topic-partition gap was fixed with a dedicated JSON producer, send-result failure handling, and a DLT-only topic declaration; focused tests verify serializer output, DLT topic configuration, nonzero source partition routing, surfaced send failures, and inherited consumer/producer security properties. A broker-backed exhausted-event test remains unrun. Managed Kafka must grant topic-admin permissions or pre-provision the DLT; startup alone does not prove DLT readiness. Public use remains blocked by the shared anonymous quota: one visitor can consume capacity for all visitors, so this demo is not safe for an open public deployment.
 
-#### Core Documentation
-1. **README.md** (347 lines) - Project overview, setup, architecture
-2. **QUICK-START.md** (233 lines) - 60-second setup guide
-3. **DEPLOYMENT.md** - Complete deployment guide
-4. **SECURITY.md** - Rate limiting & security details
+The panel's remaining runtime and production limitations are recorded as unknowns below, not treated as accepted production readiness.
 
-#### Technical Documentation
-5. **docs/PRD.md** (1,002 lines) - Product Requirements Document
-6. **docs/ARCHITECTURE.md** (140 lines) - System design & diagrams
-7. **docs/DECISIONS.md** (455 lines) - Technology choices & ADRs
-8. **docs/API-SPEC.yml** (127 lines) - OpenAPI 3.0 specification
-9. **docs/INSTALLATION.md** - Setup guide
-10. **docs/LLM-PROMPT-TEMPLATE.md** - AI prompt design
+## Prioritized unknowns and next evidence
 
-#### Test Documentation
-11. **integration-tests/PHASE5_TEST_RESULTS.md** (309 lines) - E2E test results
-12. **integration-tests/RUN_E2E_TESTS.md** - Test execution guide
-13. **TEST-ISSUES-ANALYSIS.md** (106 lines) - Test debugging guide
+1. **Composed runtime and DLT delivery:** restore Docker Desktop; build and start the stack from a clean checkout; exercise candidate selection, summary persistence/retry, and recovery after Redis/Kafka/Postgres interruptions. Verify the DLT exists with at least as many partitions as the source and grant topic-admin permissions or pre-provision it. Force a permanent or exhausted provider failure, then verify the JSON record reaches the matching-partition `.DLT` and a failed DLT send leaves the original record recoverable. This can falsify the current assumption that the new service boundaries and Kafka recovery work together.
+2. **Traveler value:** observe at least five target users completing a real "which flight is this and what is its status?" task. Record wrong selections, time, and whether the instance-specific summary helps. This can falsify the audience/value hypothesis.
+3. **Live provider contracts and freshness:** use separately approved, budget-controlled credentials; check current FlightAware and OpenAI terms, model access, response fields, and timestamps. No live calls were authorized or made for this implementation.
+4. **Security and abuse:** test the gateway with direct service exposure, spoofed forwarding headers, concurrent quota requests, malformed identifiers, and unavailable Redis. Confirm network boundaries from a running Compose deployment; current tests do not establish production security.
+5. **Operations and capacity:** measure realistic lookup and summary workloads, logs/metrics/alerts, restart behavior, backup/restore, and dependency failure recovery before making any availability, scaling, or deployment claim.
+6. **Product gap:** assess whether travelers value the candidate-selection safeguard after comparing the actual workflow against existing trackers. If not, revisit the product direction rather than polishing an unsupported differentiator.
 
-#### Operations Documentation
-14. **PRICING-ANALYSIS.md** - Detailed cost breakdown
-15. **.github/workflows/PIPELINE-COMPLETE.md** (466 lines) - CI/CD guide
-16. **.github/workflows/PERFORMANCE-TEST-README.md** - Load testing guide
-17. **scripts/README.md** - Deployment script documentation
+## What remains incomplete
 
-#### Project Management
-18. **PROJECT_COMPLETION_REPORT.md** (This document) - Final report
-
-**Total:** 4,102 lines of comprehensive, production-ready documentation
-
----
-
-## 🎓 Lessons Learned
-
-### Technical Insights
-
-1. **Redis Type Safety:** Always configure `ObjectMapper` with default typing for complex objects
-2. **Docker Health Checks:** Critical for ensuring services are actually ready, not just started
-3. **WireMock Persistence:** Use `urlPathEqualTo()` for stubs that need to match multiple times
-4. **Kafka Transaction:** Manual commit with `RECORD` ack mode provides best reliability
-5. **Database Flush:** Use `saveAndFlush()` in async scenarios where immediate visibility is needed
-
-### Testing Best Practices
-
-1. **Start with infrastructure checks** before running tests
-2. **Use Awaitility** for async operations (Kafka, LLM)
-3. **Mock external APIs** at network level (WireMock) not code level
-4. **Verify side effects** (API call counts, cache hits, DB persistence)
-5. **Test error paths** as thoroughly as happy paths
-
-### Architecture Decisions
-
-1. **Microservices:** Provides scalability but increases operational complexity
-2. **Event-Driven:** Kafka decouples services but requires careful error handling
-3. **Cache-Aside:** Redis dramatically improves performance (31ms vs 2000ms)
-4. **TDD Approach:** All 40 tests written first, ensuring high quality
-
----
-
-## 🏁 Final Verdict
-
-### Overall Assessment: **EXCELLENT** ✅
-
-**Production Readiness:** **YES** ✅
-
-The Airline Tracking System has been validated end-to-end with:
-- ✅ Complete functional testing (40/40 tests passing)
-- ✅ Performance benchmarking (all metrics exceed targets)
-- ✅ Error scenario validation (404, 500, 429 handled)
-- ✅ Infrastructure orchestration (8 services healthy)
-- ✅ Service discovery and routing (Eureka working)
-- ✅ Caching and event streaming (Redis + Kafka validated)
-- ✅ Database persistence (PostgreSQL transactions working)
-- ✅ External API integration (FlightAware + OpenAI tested)
-
-### Key Achievements Summary
-
-| Achievement | Status |
-|-------------|--------|
-| 13,319 lines of production code | ✅ Complete |
-| 4 microservices deployed | ✅ Operational |
-| 40/40 tests passing (100%) | ✅ Perfect |
-| Sub-100ms cache response times | ✅ Excellent |
-| 100% E2E test pass rate | ✅ Perfect |
-| Production CI/CD pipeline | ✅ Automated |
-| Comprehensive documentation | ✅ Complete |
-| Cost protection ($0.45/month) | ✅ Safe |
-
----
-
-## 🎯 Next Steps
-
-### Phase 6: Production Deployment (Optional)
-
-1. **Kubernetes Deployment**
-   - Create Helm charts for all services
-   - Configure Horizontal Pod Autoscaling
-   - Set up Ingress controllers
-
-2. **Monitoring Enhancement**
-   - Deploy Prometheus + Grafana to production
-   - Configure alerting rules
-   - Set up distributed tracing (Zipkin/Jaeger)
-
-3. **Performance Optimization**
-   - Implement circuit breakers (Resilience4j)
-   - Add API rate limiting at gateway level
-   - Optimize database queries with indexes
-
-4. **Security Hardening**
-   - Implement authentication/authorization
-   - Add API key management
-   - Enable HTTPS/TLS
-
----
-
-## 📞 Project Information
-
-**Project Name:** Airline Tracking System  
-**Version:** 1.0.0  
-**Status:** ✅ **PRODUCTION READY**  
-**Completion Date:** November 18, 2025  
-**Development Time:** 4 weeks  
-**Total Lines of Code:** 13,319 lines  
-**Test Success Rate:** 100% (40/40)  
-**Production Readiness Score:** 59/60 (98.3%)
-
----
-
-## ✅ Sign-Off
-
-**Technical Lead:** Approved ✅  
-**QA Lead:** Approved ✅  
-**Product Owner:** Approved ✅
-
-**System is ready for production deployment.**
-
----
-
-**Document Version:** 1.0.0  
-**Last Updated:** November 18, 2025  
-**Generated From:** Phase 5 E2E test results, actual code metrics, CI/CD pipeline data
-
-**Status:** 🟢 **PRODUCTION READY**
+This implementation improves the portfolio demo and establishes focused code-level evidence. It does **not** establish that the composed application starts, that live providers work, that travelers need this product, that the flow is novel, or that it is safe and economical to deploy to the public. Those are open findings, not completed acceptance criteria.

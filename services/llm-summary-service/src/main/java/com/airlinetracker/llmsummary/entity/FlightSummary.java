@@ -41,6 +41,9 @@ public class FlightSummary {
     @Column(name = "last_updated_at", nullable = false)
     private Instant lastUpdatedAt;
 
+    @Column(name = "source_checked_at")
+    private Instant sourceCheckedAt;
+
     /**
      * Set timestamps before persisting.
      */

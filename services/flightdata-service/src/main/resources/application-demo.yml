@@ -1,0 +1,10 @@
+demo:
+  enabled: true
+
+spring:
+  cache:
+    type: simple
+
+logging:
+  level:
+    com.airlinetracker.flightdata: INFO

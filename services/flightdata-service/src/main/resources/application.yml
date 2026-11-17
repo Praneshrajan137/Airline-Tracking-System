@@ -37,12 +37,12 @@ spring:
 # FlightAware API Configuration
 flightaware:
   base-url: ${FLIGHTAWARE_BASE_URL:https://aeroapi.flightaware.com/aeroapi}
-  api-key: ${FLIGHTAWARE_API_KEY:your_api_key_here}
+  api-key: ${FLIGHTAWARE_API_KEY:}
 
 # Kafka Topics
 kafka:
   topic:
-    flight-data-events: ${KAFKA_TOPIC_FLIGHT_DATA:flight-data-events}
+    flight-data-events: ${KAFKA_TOPIC:flight-data-events}
 
 # Eureka Client Configuration
 eureka:
@@ -68,14 +68,36 @@ management:
     export:
       prometheus:
         enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://zipkin:9411}/api/v2/spans
 
-# Logging Configuration
+# Resilience4j Circuit Breaker Configuration
+resilience4j:
+  circuitbreaker:
+    instances:
+      flightAwareApi:
+        failureRateThreshold: 50
+        slidingWindowSize: 5
+        minimumNumberOfCalls: 5
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 2
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+  timelimiter:
+    instances:
+      flightAwareApi:
+        timeoutDuration: 10s
+
 logging:
   level:
     root: INFO
     com.airlinetracker.flightdata: DEBUG
     org.springframework.cache: DEBUG
     org.springframework.kafka: INFO
+    io.github.resilience4j: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 

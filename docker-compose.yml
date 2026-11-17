@@ -1,23 +1,16 @@
 # ============================================
-# AIRLINE TRACKING SYSTEM - PRODUCTION DOCKER COMPOSE
+# AIRLINE TRACKER - ACADEMIC LOCAL DEMO
 # ============================================
-# Production-ready orchestration with:
-# - Auto-restart policies
-# - Resource limits
-# - Data persistence (volumes)
-# - Health checks
-# - Environment variable configuration
+# Local Compose stack with loopback-only app/monitoring ports and internal services.
 #
 # Usage:
-#   1. Copy env.example to .env and fill in your API keys
-#   2. Run: docker-compose up -d
-#   3. Check health: docker-compose ps
-#   4. View logs: docker-compose logs -f [service-name]
+#   1. Use scripts/deploy.ps1 (Windows) or bash scripts/deploy.sh (Unix) for local demo.
+#   2. These launchers force APP_PROFILE=demo; no provider credentials are needed.
+#   3. Check health: docker compose ps
+#   4. View logs: docker compose logs -f [service-name]
 #
-# Stop: docker-compose down
-# Stop + remove volumes: docker-compose down -v
-
-version: '3.8'
+# Stop: docker compose down
+# Stop + remove volumes: docker compose down -v
 
 services:
   # ============================================
@@ -27,14 +20,12 @@ services:
   # PostgreSQL Database (for llm-summary-service)
   postgres:
     image: postgres:15-alpine
-    container_name: prod-postgres
+    container_name: demo-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-airline_tracker}
       POSTGRES_USER: ${POSTGRES_USER:-airline_tracker_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-academic-demo-only}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -54,14 +45,12 @@ services:
     networks:
       - airline-network
 
-  # Redis Cache (for flightdata-service)
+  # Redis cache plus global FlightAware and OpenAI quotas
   redis:
     image: redis:7-alpine
-    container_name: prod-redis
+    container_name: demo-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     healthcheck:
@@ -84,19 +73,18 @@ services:
   # Zookeeper (for Kafka)
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
-    container_name: prod-zookeeper
+    container_name: demo-zookeeper
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: ruok
       ZOOKEEPER_LOG4J_ROOT_LOGLEVEL: WARN
-    ports:
-      - "2181:2181"
     volumes:
       - zookeeper_data:/var/lib/zookeeper/data
       - zookeeper_logs:/var/lib/zookeeper/log
     healthcheck:
-      test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "2181"]
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -115,7 +103,7 @@ services:
   # Kafka Message Broker
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: prod-kafka
+    container_name: demo-kafka
     restart: unless-stopped
     depends_on:
       zookeeper:
@@ -128,8 +116,6 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_LOG_RETENTION_HOURS: 168
       KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
-    ports:
-      - "${KAFKA_PORT:-9092}:9092"
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
@@ -159,7 +145,7 @@ services:
       context: .
       dockerfile: integration-tests/Dockerfile.service-registry
     image: airline-tracker/service-registry:latest
-    container_name: prod-service-registry
+    container_name: demo-service-registry
     restart: unless-stopped
     environment:
       SPRING_PROFILES_ACTIVE: prod
@@ -167,8 +153,6 @@ services:
       EUREKA_CLIENT_REGISTER_WITH_EUREKA: "false"
       EUREKA_CLIENT_FETCH_REGISTRY: "false"
       LOGGING_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
-    ports:
-      - "${EUREKA_SERVER_PORT:-8761}:8761"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8761/actuator/health"]
       interval: 15s
@@ -192,21 +176,25 @@ services:
       context: .
       dockerfile: integration-tests/Dockerfile.api-gateway
     image: airline-tracker/api-gateway:latest
-    container_name: prod-api-gateway
+    container_name: demo-api-gateway
     restart: unless-stopped
     depends_on:
       service-registry:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: ${APP_PROFILE:-demo}
       SERVER_PORT: 8080
-      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://service-registry:8761/eureka/
+      EUREKA_DEFAULT_ZONE: http://service-registry:8761/eureka/
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       EUREKA_INSTANCE_HOSTNAME: api-gateway
       LOGGING_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
       LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_CLOUD_GATEWAY: ${LOG_LEVEL_APP:-INFO}
     ports:
-      - "${API_GATEWAY_PORT:-8080}:8080"
+      - "127.0.0.1:${API_GATEWAY_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
       interval: 15s
@@ -230,7 +218,7 @@ services:
       context: .
       dockerfile: integration-tests/Dockerfile.flightdata-service
     image: airline-tracker/flightdata-service:latest
-    container_name: prod-flightdata-service
+    container_name: demo-flightdata-service
     restart: unless-stopped
     depends_on:
       service-registry:
@@ -240,10 +228,10 @@ services:
       kafka:
         condition: service_healthy
     environment:
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: ${APP_PROFILE:-demo}
       SERVER_PORT: 8081
       # Eureka
-      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://service-registry:8761/eureka/
+      EUREKA_DEFAULT_ZONE: http://service-registry:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       EUREKA_INSTANCE_HOSTNAME: flightdata-service
       # Redis
@@ -254,12 +242,10 @@ services:
       KAFKA_TOPIC: ${KAFKA_TOPIC_FLIGHT_DATA:-flight-data-events}
       # FlightAware API
       FLIGHTAWARE_BASE_URL: ${FLIGHTAWARE_BASE_URL:-https://aeroapi.flightaware.com/aeroapi}
-      FLIGHTAWARE_API_KEY: ${FLIGHTAWARE_API_KEY:?FLIGHTAWARE_API_KEY is required}
+      FLIGHTAWARE_API_KEY: ${FLIGHTAWARE_API_KEY:-}
       # Logging
       LOGGING_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
       LOGGING_LEVEL_COM_AIRLINETRACKER: ${LOG_LEVEL_APP:-INFO}
-    ports:
-      - "${FLIGHTDATA_SERVICE_PORT:-8081}:8081"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/actuator/health"]
       interval: 15s
@@ -283,7 +269,7 @@ services:
       context: .
       dockerfile: integration-tests/Dockerfile.llm-summary-service
     image: airline-tracker/llm-summary-service:latest
-    container_name: prod-llm-summary-service
+    container_name: demo-llm-summary-service
     restart: unless-stopped
     depends_on:
       service-registry:
@@ -292,33 +278,37 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: ${APP_PROFILE:-demo}
       SERVER_PORT: 8082
       # Eureka
-      EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: http://service-registry:8761/eureka/
+      EUREKA_DEFAULT_ZONE: http://service-registry:8761/eureka/
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       EUREKA_INSTANCE_HOSTNAME: llm-summary-service
       # Database
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-airline_tracker}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-airline_tracker_user}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-local-academic-demo-only}
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       # Kafka
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_TOPIC: ${KAFKA_TOPIC_FLIGHT_DATA:-flight-data-events}
+      KAFKA_TOPIC_PARTITIONS: ${KAFKA_TOPIC_PARTITIONS:-1}
+      KAFKA_TOPIC_REPLICATION_FACTOR: ${KAFKA_TOPIC_REPLICATION_FACTOR:-1}
       KAFKA_GROUP_ID: llm-summary-consumer-group
       # OpenAI API
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-3.5-turbo}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
       OPENAI_MAX_TOKENS: ${OPENAI_MAX_TOKENS:-150}
       OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-0.7}
       # Logging
       LOGGING_LEVEL_ROOT: ${LOG_LEVEL_ROOT:-INFO}
       LOGGING_LEVEL_COM_AIRLINETRACKER: ${LOG_LEVEL_APP:-INFO}
-    ports:
-      - "${LLM_SUMMARY_SERVICE_PORT:-8082}:8082"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8082/actuator/health"]
       interval: 15s
@@ -337,13 +327,47 @@ services:
       - airline-network
 
   # ============================================
+  # FRONTEND
+  # ============================================
+
+  # React Frontend (SPA)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: airline-tracker/frontend:latest
+    container_name: demo-frontend
+    restart: unless-stopped
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - airline-network
+
+  # ============================================
   # MONITORING STACK (PRD NFR-4: Observability)
   # ============================================
 
   # Prometheus - Metrics Collection
   prometheus:
     image: prom/prometheus:v2.45.0
-    container_name: prod-prometheus
+    container_name: demo-prometheus
     restart: unless-stopped
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -352,11 +376,11 @@ services:
       - '--web.console.templates=/usr/share/prometheus/consoles'
       - '--storage.tsdb.retention.time=30d'
       - '--web.enable-lifecycle'
-    ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
       interval: 10s
@@ -377,7 +401,7 @@ services:
   # Grafana - Metrics Visualization
   grafana:
     image: grafana/grafana:10.0.0
-    container_name: prod-grafana
+    container_name: demo-grafana
     restart: unless-stopped
     depends_on:
       prometheus:
@@ -395,8 +419,6 @@ services:
       GF_PATHS_PROVISIONING: /etc/grafana/provisioning
       # Logging
       GF_LOG_LEVEL: info
-    ports:
-      - "${GRAFANA_PORT:-3000}:3000"
     volumes:
       # Grafana data persistence
       - grafana_data:/var/lib/grafana
@@ -404,12 +426,41 @@ services:
       - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
       # Dashboard provisioning
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - airline-network
+
+  # Zipkin - Distributed Tracing
+  zipkin:
+    image: openzipkin/zipkin:latest
+    container_name: demo-zipkin
+    restart: unless-stopped
+    environment:
+      STORAGE_TYPE: mem
+      JAVA_OPTS: "-Xmx256m"
+    ports:
+      - "127.0.0.1:${ZIPKIN_PORT:-9411}:9411"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9411/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     deploy:
       resources:
         limits:

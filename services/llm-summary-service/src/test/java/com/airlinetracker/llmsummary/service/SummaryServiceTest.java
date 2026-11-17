@@ -124,6 +124,28 @@ class SummaryServiceTest {
     }
 
     @Test
+    @DisplayName("Duplicate retry events do not call the summary provider again")
+    void testProcessFlightData_DuplicateEventIsIdempotent() {
+        Instant checkedAt = Instant.parse("2026-11-17T10:00:00Z");
+        testFlightData.setCheckedAt(checkedAt);
+        FlightSummary existing = FlightSummary.builder()
+                .id(1L)
+                .ident("UAL123")
+                .faFlightId(testFlightData.getFaFlightId())
+                .summaryText("Already generated")
+                .sourceCheckedAt(checkedAt)
+                .generatedAt(checkedAt)
+                .lastUpdatedAt(checkedAt)
+                .build();
+        when(repository.findByFaFlightId(testFlightData.getFaFlightId())).thenReturn(Optional.of(existing));
+
+        summaryService.processFlightData(testFlightData);
+
+        verifyNoInteractions(openAIClient);
+        verify(repository, never()).saveAndFlush(any(FlightSummary.class));
+    }
+
+    @Test
     @DisplayName("Should get latest summary by ident")
     void testGetSummaryByIdent_Success() {
         // Given: Summary exists in database

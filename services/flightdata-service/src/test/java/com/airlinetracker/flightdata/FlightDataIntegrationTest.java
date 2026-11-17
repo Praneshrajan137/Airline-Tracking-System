@@ -118,36 +118,22 @@ class FlightDataIntegrationTest {
      *
      * NOTE: This test is disabled due to timing issues with EmbeddedKafka consumer startup.
      * The Kafka consumer in the test context does not reliably receive messages within
-     * the test timeout window, causing flaky failures (null Kafka message assertion).
-     *
-     * This is a TEST INFRASTRUCTURE issue, NOT a production code issue:
-     * - All 12 other tests in this service pass successfully
-     * - Production Docker services work correctly (verified via docker-compose)
-     * - Kafka messaging works in production (verified via LLM service integration tests)
-     * - The actual service code is correct and functional
-     *
-     * Alternative test coverage:
-     * - Unit tests verify FlightDataService logic (FlightDataServiceTest)
-     * - Unit tests verify FlightAwareClient (FlightAwareClientTest)
-     * - End-to-end validation via production validation script
-     *
-     * If needed, this test can be re-enabled with:
-     * - Testcontainers for real Kafka (slower but more reliable)
-     * - Significantly increased timeouts (30-60 seconds)
-     * - Manual debugging of EmbeddedKafka consumer lifecycle
+     * This test is disabled because its embedded Kafka consumer timing has not
+     * been made reliable. It is not evidence that the full service flow works.
+     * Use a Docker-backed integration run before treating Kafka delivery as verified.
      */
     @Disabled("Flaky test: EmbeddedKafka consumer timing issues. Production Kafka verified working.")
     @Test
     void shouldCompleteFullFlightDataFlow() throws Exception {
         // Arrange: Clear cache and Kafka queue
         String ident = "UAL123";
-        String cacheKey = "flights::UAL123"; // Spring Cache default key format
+        String cacheKey = "flight-candidates::UAL123";
         redisTemplate.delete(cacheKey);
         kafkaMessages.clear();
 
         // Mock FlightAware API response
         String flightAwareResponse = """
-                {
+                {"flights":[{
                     "fa_flight_id": "UAL123-1678886400-airline-0123",
                     "ident": "UAL123",
                     "status": "En-Route / In Flight",
@@ -162,7 +148,7 @@ class FlightDataIntegrationTest {
                     "longitude": -98.6,
                     "altitude": 35000,
                     "groundspeed": 450
-                }
+                }]}
                 """;
 
         stubFor(get(urlEqualTo("/flights/" + ident))

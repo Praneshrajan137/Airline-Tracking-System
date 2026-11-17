@@ -10,6 +10,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.Mockito.when;
@@ -45,8 +46,8 @@ class SummaryControllerTest {
                 .lastUpdatedAt(Instant.parse("2025-11-10T10:00:00Z"))
                 .build();
 
-        when(summaryService.getFlightSummaryByIdent("UAL123"))
-                .thenReturn(Optional.of(summary));
+        when(summaryService.getFlightSummariesByIdent("UAL123"))
+                .thenReturn(List.of(summary));
 
         // When/Then: GET /api/v1/flight/UAL123/summary
         mockMvc.perform(get("/api/v1/flight/UAL123/summary"))
@@ -62,14 +63,13 @@ class SummaryControllerTest {
     @DisplayName("Should return 404 when flight summary not found")
     void testGetSummary_NotFound() throws Exception {
         // Given: No summary exists (using valid format but non-existent flight)
-        when(summaryService.getFlightSummaryByIdent("XY999"))
-                .thenReturn(Optional.empty());
+        when(summaryService.getFlightSummariesByIdent("XY999"))
+                .thenReturn(List.of());
 
         // When/Then: Should return 404
         mockMvc.perform(get("/api/v1/flight/XY999/summary"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value("Flight summary not found"))
-                .andExpect(jsonPath("$.ident").value("XY999"));
+                .andExpect(jsonPath("$.error").value("Summary not ready"));
     }
 
     @Test
@@ -84,7 +84,7 @@ class SummaryControllerTest {
     @DisplayName("Should handle service errors")
     void testGetSummary_ServiceError() throws Exception {
         // Given: Service throws exception
-        when(summaryService.getFlightSummaryByIdent("UAL123"))
+        when(summaryService.getFlightSummariesByIdent("UAL123"))
                 .thenThrow(new RuntimeException("Database error"));
 
         // When/Then: Should return 500
@@ -106,30 +106,60 @@ class SummaryControllerTest {
                 .build();
 
         // Test 2-letter airline code
-        when(summaryService.getFlightSummaryByIdent("BA456"))
-                .thenReturn(Optional.of(summary));
+        when(summaryService.getFlightSummariesByIdent("BA456"))
+                .thenReturn(List.of(summary));
         mockMvc.perform(get("/api/v1/flight/BA456/summary"))
                 .andExpect(status().isOk());
 
         // Test 3-letter airline code
         summary.setIdent("UAL123");
-        when(summaryService.getFlightSummaryByIdent("UAL123"))
-                .thenReturn(Optional.of(summary));
+        when(summaryService.getFlightSummariesByIdent("UAL123"))
+                .thenReturn(List.of(summary));
         mockMvc.perform(get("/api/v1/flight/UAL123/summary"))
                 .andExpect(status().isOk());
 
         // Test 1-digit flight number
         summary.setIdent("AA5");
-        when(summaryService.getFlightSummaryByIdent("AA5"))
-                .thenReturn(Optional.of(summary));
+        when(summaryService.getFlightSummariesByIdent("AA5"))
+                .thenReturn(List.of(summary));
         mockMvc.perform(get("/api/v1/flight/AA5/summary"))
                 .andExpect(status().isOk());
 
         // Test 4-digit flight number
         summary.setIdent("AA1234");
-        when(summaryService.getFlightSummaryByIdent("AA1234"))
-                .thenReturn(Optional.of(summary));
+        when(summaryService.getFlightSummariesByIdent("AA1234"))
+                .thenReturn(List.of(summary));
         mockMvc.perform(get("/api/v1/flight/AA1234/summary"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("Summary lookup is pinned to the selected flight instance")
+    void testGetSummary_ByFlightInstance() throws Exception {
+        FlightSummary summary = FlightSummary.builder()
+                .ident("UAL123")
+                .faFlightId("UAL123-20261117-airline-1")
+                .summaryText("The selected instance is en route.")
+                .generatedAt(Instant.parse("2026-11-17T10:00:00Z"))
+                .lastUpdatedAt(Instant.parse("2026-11-17T10:00:00Z"))
+                .build();
+        when(summaryService.getFlightSummaryByFaFlightId("UAL123-20261117-airline-1"))
+                .thenReturn(Optional.of(summary));
+
+        mockMvc.perform(get("/api/v1/flight/UAL123/summary/UAL123-20261117-airline-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fa_flight_id").value("UAL123-20261117-airline-1"));
+    }
+
+    @Test
+    @DisplayName("Legacy summary lookup rejects ambiguous flight numbers")
+    void testGetSummary_LegacyAmbiguous() throws Exception {
+        FlightSummary first = FlightSummary.builder().ident("UAL123").faFlightId("UAL123-one").build();
+        FlightSummary second = FlightSummary.builder().ident("UAL123").faFlightId("UAL123-two").build();
+        when(summaryService.getFlightSummariesByIdent("UAL123")).thenReturn(List.of(first, second));
+
+        mockMvc.perform(get("/api/v1/flight/UAL123/summary"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Flight instance required"));
     }
 }

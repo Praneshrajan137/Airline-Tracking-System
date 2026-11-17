@@ -4,115 +4,103 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cloud.gateway.route.RouteLocator;
-import org.springframework.test.context.TestPropertySource;
-
-import java.util.List;
+import org.springframework.http.HttpMethod;
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
+import org.springframework.mock.web.server.MockServerWebExchange;
+import org.springframework.security.web.server.WebFilterChainProxy;
+import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Integration tests for API Gateway
- * 
- * Test Requirements (from ARCHITECTURE.md):
- * - API Gateway must run on port 8080
- * - Must route /api/v1/flight/** to flightdata-service
- * - Must route /api/v1/flight/** /summary to llm-summary-service
- * - Must use load balancing (lb://)
- * - Must register with Eureka
- */
-@SpringBootTest
-@TestPropertySource(properties = {
-    "eureka.client.enabled=false" // Disable Eureka for tests
-})
+@SpringBootTest(properties = "eureka.client.enabled=false")
 class ApiGatewayApplicationTests {
 
-    @Autowired(required = false)
+    @Autowired
     private RouteLocator routeLocator;
 
-    /**
-     * Test: Spring Boot context should load successfully
-     */
+    @Autowired
+    private WebFilterChainProxy securityFilterChain;
+
     @Test
     void contextLoads() {
         assertThat(routeLocator).isNotNull();
     }
 
-    /**
-     * Test: Gateway should have route to flightdata-service
-     * 
-     * Requirement: api-gateway must route /api/v1/flight/** to FLIGHTDATA-SERVICE
-     */
     @Test
-    void shouldHaveFlightDataServiceRoute() {
+    void routesFlightAndSummaryRequestsToTheirServices() {
         var routes = routeLocator.getRoutes().collectList().block();
         assertThat(routes).isNotNull();
-        
-        var flightDataRoute = routes.stream()
-            .filter(route -> route.getId().equals("flightdata-service-route"))
-            .findFirst();
-        
-        assertThat(flightDataRoute).isPresent();
-        assertThat(flightDataRoute.get().getUri().toString())
-            .contains("lb://FLIGHTDATA-SERVICE");
-    }
-
-    /**
-     * Test: Gateway should have route to llm-summary-service
-     * 
-     * Requirement: api-gateway must route summary requests to LLM-SUMMARY-SERVICE
-     */
-    @Test
-    void shouldHaveLlmSummaryServiceRoute() {
-        var routes = routeLocator.getRoutes().collectList().block();
-        assertThat(routes).isNotNull();
-        
-        var summaryRoute = routes.stream()
-            .filter(route -> route.getId().equals("llm-summary-service-route"))
-            .findFirst();
-        
-        assertThat(summaryRoute).isPresent();
-        assertThat(summaryRoute.get().getUri().toString())
-            .contains("lb://LLM-SUMMARY-SERVICE");
-    }
-
-    /**
-     * Test: Routes should use load balancing
-     * 
-     * Verifies that routes use lb:// scheme for client-side load balancing
-     */
-    @Test
-    void shouldUseLoadBalancing() {
-        var routes = routeLocator.getRoutes().collectList().block();
-        assertThat(routes).isNotNull();
-        
-        // All routes should use lb:// scheme
-        routes.forEach(route -> {
-            String uriScheme = route.getUri().getScheme();
-            if (!route.getId().contains("actuator")) {
-                assertThat(uriScheme)
-                    .as("Route %s should use load balancing", route.getId())
-                    .isEqualTo("lb");
-            }
+        assertThat(routes).anySatisfy(route -> {
+            assertThat(route.getId()).isEqualTo("flightdata-service-route");
+            assertThat(route.getUri().toString()).contains("lb://FLIGHTDATA-SERVICE");
+        });
+        assertThat(routes).anySatisfy(route -> {
+            assertThat(route.getId()).isEqualTo("flight-summary-service-route");
+            assertThat(route.getUri().toString()).contains("lb://LLM-SUMMARY-SERVICE");
         });
     }
 
-    /**
-     * Test: Gateway should have at least 2 service routes
-     * 
-     * Verifies that both flightdata-service and llm-summary-service routes are configured
-     */
     @Test
-    void shouldHaveTwoServiceRoutes() {
+    void bothPublicRoutesUseLoadBalancingAndAddressRateLimiting() {
+        var routes = routeLocator.getRoutes().collectList().block();
+        assertThat(routes).isNotNull().hasSize(2);
+        routes.forEach(route -> {
+            assertThat(route.getUri().getScheme()).isEqualTo("lb");
+            assertThat(route.getFilters()).hasSize(1);
+        });
+    }
+
+    @Test
+    void summaryRouteMatchesLegacyAndInstanceSpecificPaths() {
         var routes = routeLocator.getRoutes().collectList().block();
         assertThat(routes).isNotNull();
-        
-        var serviceRoutes = routes.stream()
-            .filter(route -> route.getId().contains("service-route"))
-            .count();
-        
-        assertThat(serviceRoutes)
-            .as("Should have 2 service routes (flightdata and llm-summary)")
-            .isEqualTo(2);
+        var summaryRoute = routes.stream()
+                .filter(route -> route.getId().equals("flight-summary-service-route"))
+                .findFirst().orElseThrow();
+
+        var legacySummary = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/flight/UAL123/summary").build());
+        var instanceSummary = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/v1/flight/UAL123/summary/fa-flight-current").build());
+
+        assertThat(Mono.from(summaryRoute.getPredicate().apply(legacySummary)).block()).isTrue();
+        assertThat(Mono.from(summaryRoute.getPredicate().apply(instanceSummary)).block()).isTrue();
+    }
+
+    @Test
+    void guestFlightReadsAndRetryPostsPassSecurityWhileAccountAndUnknownPathsAreDenied() {
+        assertSecurityAllows(HttpMethod.GET, "/api/v1/flight/UAL123/candidates");
+        assertSecurityAllows(HttpMethod.GET, "/api/v1/flight/UAL123/instance/fa-123");
+        assertSecurityAllows(HttpMethod.GET, "/api/v1/flight/UAL123/summary/fa-123");
+        assertSecurityAllows(HttpMethod.POST, "/api/v1/flight/UAL123/instance/fa-123/summary/retry");
+        assertSecurityAllows(HttpMethod.GET, "/actuator/prometheus");
+        assertSecurityDenies(HttpMethod.GET, "/api/v1/auth/login");
+        assertSecurityDenies(HttpMethod.GET, "/actuator/gateway/routes");
+        assertSecurityDenies(HttpMethod.GET, "/api/v1/flight/UAL123/arbitrary");
+        assertSecurityDenies(HttpMethod.POST, "/api/v1/flight/UAL123/arbitrary/future-route");
+    }
+
+    private void assertSecurityAllows(HttpMethod method, String path) {
+        AtomicBoolean reachedHandler = new AtomicBoolean();
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.method(method, path).build());
+        securityFilterChain.filter(exchange, ignored -> {
+            reachedHandler.set(true);
+            return Mono.empty();
+        }).block();
+        assertThat(reachedHandler).as("Unauthenticated %s %s reaches the gateway", method, path).isTrue();
+    }
+
+    private void assertSecurityDenies(HttpMethod method, String path) {
+        AtomicBoolean reachedHandler = new AtomicBoolean();
+        var exchange = MockServerWebExchange.from(MockServerHttpRequest.method(method, path).build());
+        securityFilterChain.filter(exchange, ignored -> {
+            reachedHandler.set(true);
+            return Mono.empty();
+        }).block();
+        assertThat(reachedHandler).as("%s %s is not forwarded", method, path).isFalse();
+        assertThat(exchange.getResponse().getStatusCode()).isIn(
+                org.springframework.http.HttpStatus.UNAUTHORIZED,
+                org.springframework.http.HttpStatus.FORBIDDEN);
     }
 }
-

@@ -99,7 +99,7 @@ class EndToEndIntegrationTest {
         // OpenAI configuration (will be mocked by WireMock)
         registry.add("openai.base-url", () -> "http://localhost:9999");
         registry.add("openai.api-key", () -> "test-key-123");
-        registry.add("openai.model", () -> "gpt-3.5-turbo");
+        registry.add("openai.model", () -> "gpt-6-luna");
         registry.add("openai.max-tokens", () -> "150");
         registry.add("openai.temperature", () -> "0.7");
     }
@@ -184,7 +184,7 @@ class EndToEndIntegrationTest {
                     "id": "chatcmpl-123",
                     "object": "chat.completion",
                     "created": 1677652288,
-                    "model": "gpt-3.5-turbo",
+                    "model": "gpt-6-luna",
                     "choices": [{
                         "index": 0,
                         "message": {
@@ -448,7 +448,7 @@ class EndToEndIntegrationTest {
                     "id": "chatcmpl-123",
                     "object": "chat.completion",
                     "created": 1677652288,
-                    "model": "gpt-3.5-turbo",
+                    "model": "gpt-6-luna",
                     "choices": [{
                         "index": 0,
                         "message": {

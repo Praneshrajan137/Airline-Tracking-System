@@ -1,5 +1,5 @@
 # Production Configuration for FlightData Service
-# Includes strict rate limiting to protect FlightAware API free tier
+# Live-provider profile settings. Quotas are application guardrails, not a provider pricing guarantee.
 
 spring:
   application:
@@ -27,7 +27,7 @@ server:
 eureka:
   client:
     service-url:
-      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://service-registry:8761/eureka/}
+      defaultZone: ${EUREKA_DEFAULT_ZONE:http://service-registry:8761/eureka/}
     fetch-registry: true
     register-with-eureka: true
   instance:
@@ -42,12 +42,11 @@ flightaware:
   api-key: ${FLIGHTAWARE_API_KEY}
   timeout-seconds: ${FLIGHTAWARE_API_TIMEOUT_SECONDS:5}
   max-retries: ${FLIGHTAWARE_API_RETRY_ATTEMPTS:3}
-  # STRICT RATE LIMITING: FREE TIER PROTECTION (500 calls/month)
-  # Conservative limits: 390/month (78% usage, 22% safety buffer) = $0/month
+  # Local quotas limit accidental request volume; verify provider limits before live use.
   rate-limit:
-    calls-per-minute: 1       # Well below 5/min API limit
-    calls-per-hour: 10        # Conservative hourly cap
-    calls-per-day: 13         # 13/day × 30 = 390/month (stays in free tier)
+    calls-per-minute: 1
+    calls-per-hour: 10
+    calls-per-day: 13
     enabled: true
 
 # Redis Cache Configuration
@@ -57,7 +56,8 @@ cache:
 
 # Kafka Configuration (merged - removed duplicate)
 kafka:
-  topic: ${KAFKA_TOPIC:flight-data-events}
+  topic:
+    flight-data-events: ${KAFKA_TOPIC:flight-data-events}
 
 # Logging
 logging:

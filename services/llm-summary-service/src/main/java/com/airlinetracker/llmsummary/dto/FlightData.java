@@ -15,7 +15,7 @@ import java.time.Instant;
  * Flight Data DTO
  * 
  * Source: docs/API-SPEC.yml - FlightData schema
- * Represents real-time flight information from FlightAware AeroAPI
+ * Represents reported flight information from FlightAware AeroAPI or the labeled local demo.
  * 
  * This DTO is used for:
  * - Response from FlightAware API
@@ -94,6 +94,12 @@ public class FlightData implements Serializable {
     @JsonProperty("destination")
     private String destination;
 
+    @JsonProperty("origin_city")
+    private String originCity;
+
+    @JsonProperty("destination_city")
+    private String destinationCity;
+
     /**
      * Aircraft type code
      * Example: "B738" (Boeing 737-800)
@@ -124,4 +130,10 @@ public class FlightData implements Serializable {
      */
     @JsonProperty("groundspeed")
     private Integer groundspeed;
+
+    @JsonProperty("data_source")
+    private String dataSource;
+
+    @JsonProperty("checked_at")
+    private Instant checkedAt;
 }

@@ -40,6 +40,13 @@ yarn-error.log*
 coverage/
 *.coveragexml
 jacoco.exec
+frontend/dist/
+
+# JavaScript dependencies and generated TypeScript build metadata
+**/node_modules/
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # Temporary files
 *.tmp

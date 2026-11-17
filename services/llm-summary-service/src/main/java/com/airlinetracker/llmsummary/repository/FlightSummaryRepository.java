@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
+import java.util.List;
 
 /**
  * Repository for FlightSummary entity.
@@ -27,6 +28,8 @@ public interface FlightSummaryRepository extends JpaRepository<FlightSummary, Lo
      * @return Optional containing the most recent FlightSummary
      */
     Optional<FlightSummary> findFirstByIdentOrderByGeneratedAtDesc(String ident);
+
+    List<FlightSummary> findAllByIdentOrderByGeneratedAtDesc(String ident);
 
     /**
      * Check if a summary exists for a given fa_flight_id.

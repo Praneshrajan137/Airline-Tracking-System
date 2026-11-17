@@ -1,72 +1,84 @@
-# API Gateway Configuration
-# Source: ARCHITECTURE.md, API-SPEC.yml
-
 server:
   port: 8080
 
 spring:
   application:
     name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   cloud:
     gateway:
       routes:
-        # Route 1: LLM Summary Service (More specific route must come first)
-        # Handles: GET /api/v1/flight/{ident}/summary
-        - id: llm-summary-service-route
+        - id: flight-summary-service-route
           uri: lb://LLM-SUMMARY-SERVICE
           predicates:
-            - Path=/api/v1/flight/*/summary
-
-        # Route 2: Flight Data Service (More general route comes second)
-        # Handles: GET /api/v1/flight/{ident}
+            - Path=/api/v1/flight/*/summary/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@addressKeyResolver}"
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 5
+                redis-rate-limiter.requestedTokens: 1
         - id: flightdata-service-route
           uri: lb://FLIGHTDATA-SERVICE
           predicates:
-            - Path=/api/v1/flight/*
-
-      # Global CORS configuration
+            - Path=/api/v1/flight/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@addressKeyResolver}"
+                redis-rate-limiter.replenishRate: 1
+                redis-rate-limiter.burstCapacity: 5
+                redis-rate-limiter.requestedTokens: 1
       globalcors:
         corsConfigurations:
           '[/**]':
-            allowedOrigins: "http://localhost:3000,http://localhost:8080"
+            allowedOrigins:
+              - http://localhost
+              - http://127.0.0.1
+              - http://localhost:3000
+              - http://localhost:5173
             allowedMethods:
               - GET
               - POST
-              - PUT
-              - DELETE
               - OPTIONS
-            allowedHeaders: "*"
-            allowCredentials: true
+            allowedHeaders:
+              - Content-Type
+            allowCredentials: false
+            maxAge: 3600
 
-# Eureka Client Configuration
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: ${EUREKA_DEFAULT_ZONE:http://localhost:8761/eureka/}
     register-with-eureka: true
     fetch-registry: true
   instance:
     prefer-ip-address: true
     lease-renewal-interval-in-seconds: 30
 
-# Actuator endpoints for health checks
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,gateway
+        include: health,info,gateway,prometheus
   endpoint:
     health:
-      show-details: always
+      show-details: never
     gateway:
       enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://zipkin:9411}/api/v2/spans
 
-# Logging configuration
 logging:
   level:
     root: INFO
-    org.springframework.cloud.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO
     com.netflix.discovery: INFO
-  pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
-

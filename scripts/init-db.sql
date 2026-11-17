@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS flight_summaries (
     flight_ident VARCHAR(7) NOT NULL,
     fa_flight_id VARCHAR(100) NOT NULL UNIQUE,
     summary_text TEXT NOT NULL,
-    model_used VARCHAR(50) NOT NULL DEFAULT 'gpt-3.5-turbo',
+    model_used VARCHAR(50) NOT NULL DEFAULT 'gpt-6-luna',
     tokens_used INTEGER,
     generated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -25,7 +25,7 @@ COMMENT ON COLUMN flight_summaries.id IS 'Primary key (auto-increment)';
 COMMENT ON COLUMN flight_summaries.flight_ident IS 'Flight identifier (e.g., UAL123)';
 COMMENT ON COLUMN flight_summaries.fa_flight_id IS 'Unique FlightAware flight ID';
 COMMENT ON COLUMN flight_summaries.summary_text IS 'AI-generated natural language summary';
-COMMENT ON COLUMN flight_summaries.model_used IS 'OpenAI model used for generation (e.g., gpt-3.5-turbo)';
+COMMENT ON COLUMN flight_summaries.model_used IS 'OpenAI model used for generation';
 COMMENT ON COLUMN flight_summaries.tokens_used IS 'Number of OpenAI tokens consumed';
 COMMENT ON COLUMN flight_summaries.generated_at IS 'Timestamp when summary was generated';
 COMMENT ON COLUMN flight_summaries.created_at IS 'Record creation timestamp';

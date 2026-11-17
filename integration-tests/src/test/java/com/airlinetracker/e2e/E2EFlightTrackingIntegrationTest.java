@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestClientException;
@@ -17,6 +18,8 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
@@ -30,7 +33,7 @@ import static org.awaitility.Awaitility.await;
  * Tests the complete flow:
  * API Gateway → FlightData Service → Redis Cache → Kafka → LLM Summary Service → PostgreSQL
  * 
- * Requires Docker Compose stack to be running (see RUN_E2E_TESTS.md):
+ * Requires the Compose stack described in integration-tests/README.md to be running:
  * Run: docker-compose -f docker-compose.e2e.yml up -d
  * 
  * Tests against real infrastructure:
@@ -137,8 +140,10 @@ class E2EFlightTrackingIntegrationTest {
 
         // ACT - Step 1: Request flight data via API Gateway
         log.info("🚀 Step 1: Requesting flight data via API Gateway...");
+        FlightDataResponse candidate = findSingleCandidate(testIdent);
+        assertThat(candidate.getFaFlightId()).isEqualTo(faFlightId);
         ResponseEntity<FlightDataResponse> flightDataResponse = restTemplate.getForEntity(
-                API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent,
+                API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent + "/instance/" + faFlightId,
                 FlightDataResponse.class
         );
 
@@ -154,7 +159,8 @@ class E2EFlightTrackingIntegrationTest {
 
         log.info("✅ Step 1 PASSED: Flight data retrieved successfully");
 
-        // ASSERT - Step 2: Verify Kafka event was published (implicit - consumer will process)
+        // Queue summary generation after the selected stable flight ID is known.
+        queueSelectedSummary(testIdent, faFlightId);
         log.info("🔍 Step 2: Kafka event published (verified via consumer processing)");
 
         // ASSERT - Step 3: Verify LLM summary generated and saved to DB
@@ -165,7 +171,7 @@ class E2EFlightTrackingIntegrationTest {
                 .untilAsserted(() -> {
                     try {
                         ResponseEntity<FlightSummaryResponse> summaryResponse = restTemplate.getForEntity(
-                                API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent + "/summary",
+                                API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent + "/summary/" + faFlightId,
                                 FlightSummaryResponse.class
                         );
 
@@ -187,13 +193,14 @@ class E2EFlightTrackingIntegrationTest {
         // ACT - Step 4: Request summary via API Gateway (second time for cache verification)
         log.info("🚀 Step 4: Requesting summary again to verify it's cached...");
         ResponseEntity<FlightSummaryResponse> summaryResponse = restTemplate.getForEntity(
-                API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent + "/summary",
+                API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent + "/summary/" + faFlightId,
                 FlightSummaryResponse.class
         );
 
         // ASSERT - Step 4: Verify summary returned instantly
         assertThat(summaryResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(summaryResponse.getBody()).isNotNull();
+        assertThat(summaryResponse.getBody().getFaFlightId()).isEqualTo(faFlightId);
         assertThat(summaryResponse.getBody().getSummaryText()).contains("United Flight 123");
 
         log.info("✅ Step 4 PASSED: Summary retrieved from database");
@@ -202,7 +209,7 @@ class E2EFlightTrackingIntegrationTest {
         log.info("⏱️  Step 5: Performance check - Cache hit test...");
         long startTime = System.currentTimeMillis();
         ResponseEntity<FlightDataResponse> cachedResponse = restTemplate.getForEntity(
-                API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent,
+                API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent + "/instance/" + faFlightId,
                 FlightDataResponse.class
         );
         long duration = System.currentTimeMillis() - startTime;
@@ -390,7 +397,7 @@ class E2EFlightTrackingIntegrationTest {
     @Test
     @Order(5)
     @Timeout(value = 60, unit = TimeUnit.SECONDS)
-    @DisplayName("Test 5: Should handle OpenAI rate limit with exponential backoff")
+    @DisplayName("Test 5: Should honor Retry-After when OpenAI rate limits")
     void shouldHandleOpenAIRateLimitWithExponentialBackoff() throws Exception {
         log.info("📋 TEST 5: Error Handling - OpenAI Rate Limit");
         log.info("-".repeat(80));
@@ -432,6 +439,8 @@ class E2EFlightTrackingIntegrationTest {
         log.info("✅ OpenAI API mocked (rate limit → success)");
 
         // ACT - Trigger the flow
+        FlightDataResponse candidate = findSingleCandidate(testIdent);
+        assertThat(candidate.getFaFlightId()).isEqualTo(faFlightId);
         log.info("🚀 Requesting flight data (will trigger async LLM processing)...");
         ResponseEntity<FlightDataResponse> flightDataResponse = restTemplate.getForEntity(
                 API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent,
@@ -442,6 +451,9 @@ class E2EFlightTrackingIntegrationTest {
         assertThat(flightDataResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         log.info("✅ Flight data retrieved");
 
+        long queuedAt = System.nanoTime();
+        queueSelectedSummary(testIdent, faFlightId);
+
         // Wait for LLM summary to be generated (with retry logic)
         log.info("⏳ Waiting for LLM summary with retry logic (up to 45s)...");
 
@@ -451,7 +463,7 @@ class E2EFlightTrackingIntegrationTest {
                 .untilAsserted(() -> {
                     try {
                         ResponseEntity<FlightSummaryResponse> summaryResponse = restTemplate.getForEntity(
-                                API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent + "/summary",
+                                API_GATEWAY_BASE_URL + "/api/v1/flight/" + testIdent + "/summary/" + faFlightId,
                                 FlightSummaryResponse.class
                         );
 
@@ -470,6 +482,8 @@ class E2EFlightTrackingIntegrationTest {
 
         // Verify retry happened (OpenAI API should be called at least twice)
         verify(moreThanOrExactly(2), postRequestedFor(urlPathMatching("/v1/chat/completions")));
+        long recoveryDelayMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - queuedAt);
+        assertThat(recoveryDelayMs).isGreaterThanOrEqualTo(2_000L);
         log.info("✅ Verified: OpenAI API was retried after rate limit");
 
         log.info("🎉 TEST 5 COMPLETE: Rate limit recovery verified!");
@@ -479,12 +493,34 @@ class E2EFlightTrackingIntegrationTest {
     // HELPER METHODS
     // ===========================================
 
+    private FlightDataResponse findSingleCandidate(String ident) {
+        ResponseEntity<List<FlightDataResponse>> response = restTemplate.exchange(
+                API_GATEWAY_BASE_URL + "/api/v1/flight/" + ident + "/candidates",
+                org.springframework.http.HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<List<FlightDataResponse>>() {}
+        );
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull().hasSize(1);
+        return response.getBody().get(0);
+    }
+
+    private void queueSelectedSummary(String ident, String faFlightId) {
+        ResponseEntity<Map> response = restTemplate.postForEntity(
+                API_GATEWAY_BASE_URL + "/api/v1/flight/" + ident + "/instance/" + faFlightId + "/summary/retry",
+                null,
+                Map.class
+        );
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(response.getBody()).containsEntry("fa_flight_id", faFlightId);
+    }
+
     /**
      * Create mock FlightAware API JSON response
      */
     private String createFlightDataJson(String ident, String faFlightId) {
         return String.format("""
-                {
+                {"flights": [{
                     "fa_flight_id": "%s",
                     "ident": "%s",
                     "status": "En-Route / In Flight",
@@ -498,7 +534,7 @@ class E2EFlightTrackingIntegrationTest {
                     "longitude": -98.6,
                     "altitude": 35000,
                     "groundspeed": 450
-                }
+                }]}
                 """, faFlightId, ident);
     }
 
@@ -512,7 +548,7 @@ class E2EFlightTrackingIntegrationTest {
                     "id": "chatcmpl-test",
                     "object": "chat.completion",
                     "created": %d,
-                    "model": "gpt-3.5-turbo",
+                    "model": "gpt-6-luna",
                     "choices": [{
                         "index": 0,
                         "message": {

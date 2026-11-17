@@ -1,397 +1,81 @@
-# ✈️ Airline Tracker - Real-Time Flight Tracking with AI Summaries
+# Airline Tracker
 
-[![CI/CD Pipeline](https://github.com/Praneshrajan137/Airline-Tracking-System/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Praneshrajan137/Airline-Tracking-System/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Java](https://img.shields.io/badge/Java-17-red.svg)](https://adoptium.net/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2-brightgreen.svg)](https://spring.io/projects/spring-boot)
+Airline Tracker is an academic and portfolio project for travelers and people following a flight. Look up a flight number, choose a returned dated route when several instances match, then see the selected instance’s reported status and a summary tied to that exact flight ID. This is a checked snapshot lookup, not continuous flight tracking.
 
-> Production-ready microservices system with event-driven architecture, Redis caching, and AI-powered summaries
+**Project status:** working portfolio prototype. The local demo uses sample records. Live FlightAware data and live OpenAI summaries require provider credentials and have not been validated in this session. The project has no public-service, accuracy, uptime, load-capacity, or production-readiness claim.
 
-**13,319 lines of code** | **40/40 tests passing** | **Sub-100ms cache responses** | **100% E2E test pass rate**
+## What the product does
 
----
+1. Search a flight number without creating an account.
+2. Choose a returned dated flight instance when the number has multiple matches. Live search does not accept a requested date; FlightAware says its ordinary endpoints generally return 48–72 hours of data by default, depending on the endpoint.
+3. Review the route, airport-local scheduled and actual times, status, last position timestamp, data source, and data check time.
+4. Read the summary for the selected FlightAware flight ID. The demo labels its fixture text and does not call an AI provider.
 
-## 🚀 Quick Start
+The flight number alone is not a unique trip. The API therefore returns candidates and uses `fa_flight_id` to keep flight details and summaries attached to the selected instance.
 
-```bash
-# 1. Clone and setup environment
-git clone https://github.com/Praneshrajan137/Airline-Tracking-System.git
-cd airline-tracker-system
-cp env.example .env  # Add your API keys
+## Run the offline demo
 
-# 2. Deploy with one command
-./scripts/deploy.sh  # Linux/Mac
-# OR
-.\scripts\deploy.ps1  # Windows
+Requirements: Docker Desktop with Compose and enough local memory for PostgreSQL, Redis, Kafka, and the four Java services.
 
-# 3. Verify deployment
-curl http://localhost:8080/actuator/health
-
-# 4. Test API
-curl http://localhost:8080/api/v1/flight/UAL123
-
-# 5. View dashboards
-open http://localhost:8761  # Eureka
-open http://localhost:9090  # Prometheus
+```powershell
+if (!(Test-Path .env)) { Copy-Item env.example .env } else { Write-Host ".env already exists; keeping it." }
+.\scripts\deploy.ps1
 ```
 
-**System ready in ~5 minutes!** ⚡
+The launcher preserves an existing `.env` and forces the fixture-backed demo profile for this start. Wait for Compose health checks, then open [http://localhost](http://localhost) and run `pwsh -File scripts/validate-demo.ps1`. The frontend, gateway, Prometheus, Grafana, and Zipkin bind to loopback; databases, brokers, service registry, and application service ports remain internal to Compose. The demo needs no provider keys and uses fixtures for `UAL123`, `BA178`, and `DL400`. `UAL123` returns two instances so the selection flow can be demonstrated. The local default Grafana login is `admin` / `admin`; change it in `.env` before using this stack on a shared machine.
 
----
+Monitoring tools are available at `http://localhost:9090` (Prometheus), `http://localhost:3000` (Grafana), and `http://localhost:9411` (Zipkin). Override their loopback ports with `PROMETHEUS_PORT`, `GRAFANA_PORT`, and `ZIPKIN_PORT` if needed.
 
-## 🏗️ Architecture
+Check service state and logs:
 
-```mermaid
-graph TD
-    User[Client] --> APIG[api-gateway:8080]
-    
-    subgraph "Spring Cloud Services"
-        APIG --> SR[service-registry:8761]
-        FDS[flightdata-service:8081] --> SR
-        LLMS[llm-summary-service:8082] --> SR
-        APIG -.discovers.-> SR
-    end
-    
-    subgraph "Data Plane"
-        FDS -->|1. Check Cache| REDIS[Redis Cache]
-        FDS -->|2. Cache Miss| FA[FlightAware API]
-        FDS -->|3. Write Cache| REDIS
-        FDS -->|4. Publish Event| K[Kafka: flight-data-events]
-        LLMS -->|5. Consume Event| K
-        LLMS -->|6. Generate Summary| OpenAI[OpenAI API]
-        LLMS -->|7. Save/Read| DB[PostgreSQL]
-    end
-    
-    APIG --> FDS
-    APIG --> LLMS
-    FDS --> User
-    LLMS --> User
+```powershell
+docker compose ps
+docker compose logs -f frontend api-gateway flightdata-service llm-summary-service
 ```
 
-### Microservices
+Stop the stack with `docker compose down`. The named database and broker volumes remain on disk.
 
-| Service | Port | Description | Status |
-|---------|------|-------------|--------|
-| **service-registry** | 8761 | Eureka Server for service discovery | ✅ 5/5 tests |
-| **api-gateway** | 8080 | Spring Cloud Gateway with load balancing | ✅ 5/5 tests |
-| **flightdata-service** | 8081 | Real-time flight data + Redis caching | ✅ 5/5 tests |
-| **llm-summary-service** | 8082 | AI summaries via OpenAI GPT-3.5-turbo | ✅ 25/25 tests |
+## Enable live provider calls
 
----
+This project is scoped to academic and portfolio use. Before using provider data, review the current [FlightAware AeroAPI terms and plan limits](https://www.flightaware.com/commercial/aeroapi/) for your intended use. Do not expose a public or commercial service based on this repository without separately reviewing the provider license and operating requirements.
 
-## 🛠️ Technology Stack
+Set `APP_PROFILE=prod`, then supply `FLIGHTAWARE_API_KEY`, `OPENAI_API_KEY`, and a strong `POSTGRES_PASSWORD` through a local secret store or deployment secret manager. The live summary model defaults to `gpt-6-luna`; `OPENAI_MODEL` can override it. Missing provider keys stop the corresponding service at startup. Provider requests are bounded by a Redis-backed client limit at the gateway and global quota counters at the flight service; if the limiter store is unavailable, provider calls fail closed.
 
-### Core Technologies
-- **Java 17** - Programming language
-- **Spring Boot 3.2.0** - Application framework
-- **Spring Cloud 2023.0.0** - Microservices framework
-- **Maven 3.8+** - Build tool
+**Live-mode checks remain open:** provider entitlements for the exact use case, current model access and request parameters, actual API behavior, billing limits, and full-stack operation with real credentials. No live paid request was made as part of this work.
 
-### Infrastructure
-- **Eureka Server** - Service discovery
-- **Spring Cloud Gateway** - API Gateway with load balancing
-- **Redis** - Caching layer (5-min TTL)
-- **Apache Kafka** - Event-driven messaging
-- **PostgreSQL** - Persistent storage
+## Architecture
 
-### External APIs
-- **FlightAware AeroAPI** - Real-time flight data
-- **OpenAI API** - GPT-3.5-turbo for summaries
+The application keeps four Spring services: service registry, API gateway, flight data, and summary. PostgreSQL stores summaries; Redis caches flight candidates and enforces FlightAware and OpenAI request limits; Kafka carries only a selected flight instance to the summary service; React presents the traveler flow.
 
-### Testing
-- **JUnit 5** - Unit testing framework
-- **Mockito** - Mocking framework
-- **WireMock** - HTTP API mocking
-- **Testcontainers** - Integration testing
-- **Embedded Redis/Kafka** - Lightweight testing
+The local demo profile swaps provider calls for fixture data and fixed summary text. The live profile uses FlightAware AeroAPI and OpenAI. External provider calls do not happen in demo mode.
 
----
+API details and runtime operations:
 
-## 🎯 Key Features
+- [OpenAPI specification](docs/API-SPEC.yml)
+- [Runbook](docs/RUNBOOK.md)
+- [Pitch and demo walkthrough](docs/PITCH-AND-DEMO.md)
+- [Claims ledger](docs/CLAIMS-LEDGER.md)
+- [Current project status and evidence](docs/PROJECT_COMPLETION_REPORT.md)
+- [Local demo smoke check](scripts/validate-demo.ps1) (PowerShell) or [Bash version](scripts/validate-demo.sh)
 
-- ✅ **Event-Driven Architecture** - Kafka for async processing
-- ✅ **Sub-100ms Cache** - Redis with 5-minute TTL
-- ✅ **Service Discovery** - Eureka-based registration
-- ✅ **AI Summaries** - OpenAI GPT-3.5-turbo integration
-- ✅ **Load Balancing** - Client-side with Spring Cloud
-- ✅ **Health Checks** - Spring Actuator endpoints
-- ✅ **40/40 Tests Passing** - TDD approach with >90% coverage
+## Build and verify
 
----
+Run Maven checks from each service directory:
 
-## 📡 API Documentation
-
-### 1. Get Flight Data
-```http
-GET /api/v1/flight/{ident}
+```powershell
+Push-Location services/api-gateway; mvn -B -ntp test; Pop-Location
+Push-Location services/flightdata-service; mvn -B -ntp test; Pop-Location
+Push-Location services/llm-summary-service; mvn -B -ntp test; Pop-Location
+Push-Location services/service-registry; mvn -B -ntp test; Pop-Location
+Push-Location frontend; npm run build; Pop-Location
 ```
 
-**Example Request:**
-```bash
-curl http://localhost:8080/api/v1/flight/UAL123
-```
-
-**Response (200 OK):**
-```json
-{
-  "ident": "UAL123",
-  "fa_flight_id": "UAL123-1234567890-1-0",
-  "status": "En-Route / In Flight",
-  "aircraft_type": "B738",
-  "origin": "KORD",
-  "destination": "KLAX",
-  "scheduled_out": "2025-11-18T12:00:00Z",
-  "actual_out": "2025-11-18T12:05:00Z",
-  "latitude": 39.8,
-  "longitude": -98.6,
-  "altitude": 35000,
-  "groundspeed": 450
-}
-```
-
-**Error Responses:**
-- `404 Not Found` - Flight doesn't exist
-- `429 Too Many Requests` - Rate limit exceeded
-- `500 Internal Server Error` - API failure
-
-### 2. Get AI-Generated Summary
-```http
-GET /api/v1/flight/{ident}/summary
-```
-
-**Example Request:**
-```bash
-curl http://localhost:8080/api/v1/flight/UAL123/summary
-```
-
-**Response (200 OK):**
-```json
-{
-  "ident": "UAL123",
-  "fa_flight_id": "UAL123-1234567890-1-0",
-  "summary_text": "United Flight 123 is currently en route from Chicago O'Hare to Los Angeles. The flight departed 5 minutes late at 12:05 PM and is expected to arrive on time.",
-  "generated_at": "2025-11-18T12:06:00Z"
-}
-```
-
-**Full API Specification:** [docs/API-SPEC.yml](docs/API-SPEC.yml)
-
----
-
-## 🔐 Configuration
-
-**Required API Keys** (add to `.env` file):
-```bash
-FLIGHTAWARE_API_KEY=your_key_here  # Get from flightaware.com
-OPENAI_API_KEY=your_key_here       # Get from platform.openai.com
-POSTGRES_PASSWORD=secure_password  # Choose strong password
-```
-
-**See [.env.example](.env.example) for full configuration**
-
----
-
-## ⚡ Performance Benchmarks
-
-**Actual results from Phase 5 E2E tests:**
-
-| Metric | Target | Actual | Status |
-|--------|--------|--------|--------|
-| **Cache Hit Latency** | < 500ms | **31ms** | ✅ 1,838% faster |
-| **Cache Miss Latency** | < 2,000ms | **31ms** | ✅ 6,445% faster |
-| **Kafka Processing** | < 2s | **< 1s** | ✅ 100% faster |
-| **E2E Flow** | < 10s | **~4s** | ✅ 150% faster |
-| **LLM Summary Generation** | < 5s | **2-3s** | ✅ 40-60% faster |
-
-**Test Results:** 5/5 E2E tests passed | 0 failures | 13.584s total execution time
-
-**Source:** [integration-tests/PHASE5_TEST_RESULTS.md](integration-tests/PHASE5_TEST_RESULTS.md)
-
----
-
-## 🔧 Troubleshooting
-
-### Issue 1: Services Won't Start
-
-**Symptoms:** `docker-compose up` fails or services show as "unhealthy"
-
-**Solution:**
-```bash
-# Check Docker daemon
-docker info
-
-# Check system resources
-df -h  # Disk space
-free -h  # Memory
-
-# Clean and rebuild
-docker-compose down -v
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-### Issue 2: Redis Connection Errors
-
-**Symptoms:** "Connection refused" errors, all requests hitting external API
-
-**Solution:**
-```bash
-# Check Redis status
-docker-compose ps redis
-docker exec prod-redis redis-cli ping
-
-# Restart Redis
-docker-compose restart redis
-
-# Clear cache if needed
-docker exec prod-redis redis-cli FLUSHALL
-```
-
-### Issue 3: Kafka Consumer Not Processing
-
-**Symptoms:** Summaries not being generated, high consumer lag
-
-**Solution:**
-```bash
-# Check Kafka status
-docker exec prod-kafka kafka-broker-api-versions --bootstrap-server localhost:9092
-
-# Check consumer group
-docker exec prod-kafka kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group llm-summary-consumer-group
-
-# Restart LLM Summary Service
-docker-compose restart llm-summary-service
-```
-
-### Issue 4: Database Connection Pool Exhausted
-
-**Symptoms:** "Connection pool exhausted" errors, slow queries
-
-**Solution:**
-```bash
-# Check active connections
-docker exec prod-postgres psql -U airline_tracker_user -d airline_tracker -c "SELECT count(*) FROM pg_stat_activity;"
-
-# Restart application services
-docker-compose restart flightdata-service llm-summary-service
-```
-
-### Issue 5: High Memory Usage
-
-**Symptoms:** Services crashing with OutOfMemoryError
-
-**Solution:**
-```bash
-# Check memory usage
-docker stats
-
-# Increase memory limits in docker-compose.yml
-# Edit: deploy.resources.limits.memory: 2G
-
-# Restart with new limits
-docker-compose up -d
-```
-
-**More Help:** See [docs/RUNBOOK.md](docs/RUNBOOK.md) for detailed operational procedures
-
----
-
-## 🤝 Contributing
-
-We welcome contributions! Here's how to get started:
-
-### Development Setup
-
-```bash
-# 1. Fork and clone
-git clone https://github.com/YOUR_USERNAME/Airline-Tracking-System.git
-cd airline-tracker-system
-
-# 2. Create feature branch
-git checkout -b feature/your-feature-name
-
-# 3. Make changes and test
-mvn clean test  # Run all tests
-mvn verify      # Run integration tests
-
-# 4. Commit with conventional commits
-git commit -m "feat: add new feature"
-git commit -m "fix: resolve bug"
-git commit -m "docs: update README"
-```
-
-### Code Standards
-
-- **Java 17** with Spring Boot 3.2
-- **Test-Driven Development (TDD)** - Write tests first
-- **SOLID Principles** - Clean, maintainable code
-- **Test Coverage** - Maintain >90% coverage
-- **Documentation** - Update docs for new features
-
-### Pull Request Process
-
-1. **Update tests** - All tests must pass
-2. **Update documentation** - README, API specs, etc.
-3. **Follow code style** - Use existing patterns
-4. **Add changelog entry** - Describe your changes
-5. **Request review** - Tag maintainers
-
-### Running Tests
-
-```bash
-# Unit tests only
-mvn test
-
-# Integration tests
-mvn verify
-
-# E2E tests
-cd integration-tests
-mvn test
-```
-
-### Reporting Issues
-
-- Use GitHub Issues
-- Include error logs
-- Provide reproduction steps
-- Specify environment details
-
-**Code of Conduct:** Be respectful, collaborative, and constructive
-
----
-
-## 📚 Documentation
-
-| Document | Description |
-|----------|-------------|
-| **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** | System design & diagrams |
-| **[API-SPEC.yml](docs/API-SPEC.yml)** | OpenAPI 3.0 specification |
-| **[RUNBOOK.md](docs/RUNBOOK.md)** | Operational procedures |
-| **[PROJECT_COMPLETION_REPORT.md](docs/PROJECT_COMPLETION_REPORT.md)** | Final project report |
-| **[DEPLOYMENT.md](DEPLOYMENT.md)** | Deployment guide |
-| **[QUICK-START.md](QUICK-START.md)** | 60-second setup |
-
----
-
-## 📝 License
-
-MIT License - See [LICENSE](LICENSE) for details
-
-This is a demo project showcasing microservices architecture, event-driven design, and AI integration.
-
----
-
-## 🎉 Acknowledgments
-
-Built with:
-- **Spring Boot & Spring Cloud** - Microservices framework
-- **FlightAware AeroAPI** - Real-time flight data
-- **OpenAI GPT-3.5-turbo** - AI-powered summaries
-- **Redis, Kafka, PostgreSQL** - Infrastructure components
-
----
-
-**Status**: ✅ **PRODUCTION READY**  
-**Code**: 13,319 lines | **Tests**: 40/40 passing | **Performance**: Sub-100ms cache  
-**Last Updated**: November 18, 2025
+Some integration tests use Testcontainers and require a reachable Docker daemon. Unit tests that do not need containers can be selected with Maven’s `-Dtest=...` option. The current evidence and any blocked checks are listed in the project status report.
+
+## Scope and limits
+
+- This is not an airline-operated source of truth. Provider records can be delayed, incomplete, or corrected after they are fetched.
+- Times are shown in the airport’s timezone when the source provides one; the service check time is labeled in the viewer’s device timezone.
+- Position age is shown from the provider timestamp and is never described as live when its timestamp is missing.
+- Accounts, saved flights, push alerts, mobile apps, and public multi-tenant deployment are out of scope.
+- No user research has yet established that the flow solves travelers’ needs better than existing flight trackers.

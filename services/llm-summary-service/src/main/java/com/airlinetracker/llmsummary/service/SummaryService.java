@@ -39,18 +39,25 @@ public class SummaryService {
         log.debug("Processing flight data for: {} ({})", flightData.getIdent(), flightData.getFaFlightId());
 
         try {
+            Optional<FlightSummary> existingSummary = repository.findByFaFlightId(flightData.getFaFlightId());
+            if (existingSummary.isPresent()
+                    && flightData.getCheckedAt() != null
+                    && existingSummary.get().getSourceCheckedAt() != null
+                    && !flightData.getCheckedAt().isAfter(existingSummary.get().getSourceCheckedAt())) {
+                log.debug("Skipping duplicate summary event for unchanged flight instance {}", flightData.getFaFlightId());
+                return;
+            }
+
             // Generate summary using OpenAI
             String summaryText = openAIClient.generateSummary(flightData);
-            log.info("Generated summary for flight {}: {}", flightData.getIdent(), summaryText);
-
-            // Check if summary already exists for this fa_flight_id
-            Optional<FlightSummary> existingSummary = repository.findByFaFlightId(flightData.getFaFlightId());
+            log.info("Generated summary for flight {}", flightData.getIdent());
 
             FlightSummary flightSummary;
             if (existingSummary.isPresent()) {
                 // Update existing summary
                 flightSummary = existingSummary.get();
                 flightSummary.setSummaryText(summaryText);
+                flightSummary.setSourceCheckedAt(flightData.getCheckedAt());
                 log.debug("Updating existing summary for fa_flight_id: {}", flightData.getFaFlightId());
             } else {
                 // Create new summary
@@ -58,6 +65,7 @@ public class SummaryService {
                         .ident(flightData.getIdent())
                         .faFlightId(flightData.getFaFlightId())
                         .summaryText(summaryText)
+                        .sourceCheckedAt(flightData.getCheckedAt())
                         .build();
                 log.debug("Creating new summary for fa_flight_id: {}", flightData.getFaFlightId());
             }
@@ -97,6 +105,16 @@ public class SummaryService {
         log.debug("Fetching complete FlightSummary for ident: {}", ident);
 
         return repository.findFirstByIdentOrderByGeneratedAtDesc(ident);
+    }
+
+    /** Resolve generated summaries by the stable flight-instance identifier. */
+    public Optional<FlightSummary> getFlightSummaryByFaFlightId(String faFlightId) {
+        return repository.findByFaFlightId(faFlightId);
+    }
+
+    /** Legacy lookup is safe only when one instance exists for the requested ident. */
+    public java.util.List<FlightSummary> getFlightSummariesByIdent(String ident) {
+        return repository.findAllByIdentOrderByGeneratedAtDesc(ident);
     }
 }
 

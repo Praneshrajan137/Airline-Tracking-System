@@ -1,139 +1,44 @@
-# System Architecture
+# Architecture
 
-## 1. Architecture Overview
-
-This system is a distributed, event-driven microservice architecture following the Separation of Concerns (SoC) principle.
-
-## 2. Microservice Definitions
-
-| Microservice | Core Responsibility (SRP) | Key Technologies | Port |
-|--------------|---------------------------|------------------|------|
-| service-registry | Service registration and discovery | Spring Boot, Eureka Server | 8761 |
-| api-gateway | Single entry point; routes requests | Spring Boot, Spring Cloud Gateway | 8080 |
-| flightdata-service | Fetches flight data; caches in Redis; publishes to Kafka | Spring Boot, WebClient, Redis, Kafka | 8081 |
-| llm-summary-service | Consumes Kafka events; generates summaries via OpenAI; saves to PostgreSQL | Spring Boot, Kafka Consumer, OpenAI API, JPA | 8082 |
-
-## 3. System Design Diagram (Mermaid)
+This is an academic portfolio system with four Spring services and a React client. The structure demonstrates service discovery, an API gateway, a flight provider client, Redis caching/limits, and an event-driven summary service. It is not a claim that microservices are necessary for a production traveler product.
 
 ```mermaid
-graph TD
-    User[Client] --> APIG[api-gateway:8080]
-    
-    subgraph "Spring Cloud Services"
-        APIG --> SR[service-registry:8761]
-        FDS[flightdata-service:8081] --> SR
-        LLMS[llm-summary-service:8082] --> SR
-        APIG -.discovers.-> SR
-    end
-    
-    subgraph "Data Plane"
-        FDS -->|1. Check Cache| REDIS[Redis Cache]
-        FDS -->|2. Cache Miss| FA[FlightAware API]
-        FDS -->|3. Write Cache| REDIS
-        FDS -->|4. Publish Event| K[Kafka: flight-data-events]
-        LLMS -->|5. Consume Event| K
-        LLMS -->|6. Generate Summary| OpenAI[OpenAI API]
-        LLMS -->|7. Save/Read| DB[PostgreSQL]
-    end
-    
-    APIG --> FDS
-    APIG --> LLMS
-    FDS --> User
-    LLMS --> User
+flowchart LR
+    Visitor --> Frontend[React + Nginx]
+    Frontend --> Gateway[API Gateway]
+    Gateway --> Flights[Flight data service]
+    Gateway --> Summaries[Summary service]
+    Flights --> Redis[(Redis)]
+    Flights --> Provider[FlightAware AeroAPI]
+    Flights --> Kafka[(Kafka)]
+    Kafka --> Summaries
+    Summaries --> Database[(PostgreSQL)]
+    Registry[Service registry] -. discovery .-> Gateway
+    Registry -. discovery .-> Flights
+    Registry -. discovery .-> Summaries
 ```
 
-## 4. Request Flows
+## Candidate and summary flow
 
-### Flow 1: Get Real-Time Flight Data (Cache-Aside Pattern)
+1. Browser requests `GET /api/v1/flight/{ident}/candidates` through Nginx and the gateway.
+2. Gateway applies a Redis token bucket by client address. The flight service checks the cached candidate list by uppercase ident; cache entries expire after five minutes. Live lookup uses FlightAware's ordinary `/flights/{ident}` endpoint without a date-range parameter; FlightAware says ordinary endpoints generally return 48–72 hours by default, though the window varies by endpoint.
+3. On a miss, FlightAware AeroAPI returns a list. The service preserves candidates, airport metadata, last-position timestamps, and a `checked_at` timestamp. Provider HTTP failures remain distinguishable from an empty result.
+4. The visitor selects one returned instance. The details endpoint resolves that ID only among candidates with the matching ident.
+5. The browser requests `GET /api/v1/flight/{ident}/summary/{faFlightId}`. If no summary exists, it posts the selected ID to the summary retry route; the flight service publishes only that instance, keyed by `fa_flight_id`.
+6. The Kafka consumer generates a summary and stores it by unique `fa_flight_id`. The browser polls for at most about 20 seconds and then shows a retry action.
 
-1. User sends GET `/api/v1/flight/UAL123` to api-gateway
-2. api-gateway discovers flightdata-service via Eureka and routes request
-3. flightdata-service checks Redis cache for key `flight:UAL123`
-4. **Cache Hit:** Return cached JSON immediately (< 500ms)
-5. **Cache Miss:** 
-   - Call FlightAware AeroAPI
-   - Save response to Redis (TTL: 5 minutes)
-   - Publish `flight-data-events` event to Kafka
-   - Return JSON to user
+The legacy ident-only flight and summary endpoints remain for compatibility. They return a conflict when their service knows there are multiple candidates.
 
-### Flow 2: Get LLM Summary (Event-Driven & Asynchronous)
+## Profiles
 
-1. llm-summary-service listens to Kafka topic `flight-data-events`
-2. On new event, consumes FlightData JSON
-3. Formats data into LLM prompt template
-4. Sends prompt to OpenAI API (gpt-3.5-turbo)
-5. Saves generated summary to PostgreSQL
-6. **User Request:** GET `/api/v1/flight/UAL123/summary`
-7. llm-summary-service reads pre-generated summary from DB
-8. Returns FlightSummary JSON instantly
+- `demo`: Flight service serves local fixtures; summary service returns clearly labeled fixed text. No external flight or LLM request is made.
+- `prod`: provider clients are enabled and fail startup if keys are absent. This is a live-provider profile, not a production deployment recipe.
 
-## 5. Database Schemas
+## Boundaries and unresolved behavior
 
-### PostgreSQL Schema (llm-summary-service)
-
-```sql
-CREATE TABLE flight_summaries (
-    id SERIAL PRIMARY KEY,
-    ident VARCHAR(50) NOT NULL,
-    fa_flight_id VARCHAR(100) NOT NULL UNIQUE,
-    summary_text TEXT,
-    generated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    last_updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_ident ON flight_summaries(ident);
-```
-
-### Kafka Event Schema
-
-**Topic:** `flight-data-events`  
-**Message Format:** FlightData JSON (from API-SPEC.yml)
-
-**Sample Event:**
-
-```json
-{
-  "fa_flight_id": "UAL123-1678886400-airline-0123",
-  "ident": "UAL123",
-  "status": "En-Route / In Flight",
-  "scheduled_out": "2023-03-15T12:00:00Z",
-  "actual_out": "2023-03-15T12:05:00Z",
-  "scheduled_in": "2023-03-15T18:30:00Z",
-  "actual_in": null,
-  "origin": "KORD",
-  "destination": "KLAX",
-  "aircraft_type": "B738",
-  "latitude": 39.8,
-  "longitude": -98.6,
-  "altitude": 35000,
-  "groundspeed": 450
-}
-```
-
-### Redis Cache Schema
-
-**Key Pattern:** `flight:{ident}`  
-**Example:** `flight:UAL123`  
-**Value:** FlightData JSON  
-**TTL:** 300 seconds (5 minutes)
-
-**Sample Cache Entry:**
-
-```json
-{
-  "fa_flight_id": "UAL123-1678886400-airline-0123",
-  "ident": "UAL123",
-  "status": "En-Route / In Flight",
-  "scheduled_out": "2023-03-15T12:00:00Z",
-  "actual_out": "2023-03-15T12:05:00Z",
-  "scheduled_in": "2023-03-15T18:30:00Z",
-  "actual_in": null,
-  "origin": "KORD",
-  "destination": "KLAX",
-  "aircraft_type": "B738",
-  "latitude": 39.8,
-  "longitude": -98.6,
-  "altitude": 35000,
-  "groundspeed": 450
-}
-```
+- Redis cache values use a typed JSON serializer for candidate lists; arbitrary Jackson default typing is not enabled.
+- Gateway and provider quotas use Redis and reject requests when quota storage is unavailable.
+- Only a selected flight is queued for summary generation. OpenAI calls have a global Redis-backed per-minute, per-hour, and per-day quota; these are volume guardrails, not a provider billing cap.
+- Compose publishes the frontend, gateway, Prometheus, Grafana, and Zipkin to loopback only; all internal services share one bridge network. Prometheus scrapes the four Spring services' actuator endpoints.
+- Kafka persistence/retry, database migrations and restoration, provider freshness, runtime behavior on a clean Compose start, and load capacity still need end-to-end evidence.
+- Automatic Kafka publication is asynchronous and can fail after the search response. The explicit retry endpoint waits up to three seconds for broker acknowledgement and returns an error when the broker does not acknowledge; both paths still need a running-broker test before deployment.

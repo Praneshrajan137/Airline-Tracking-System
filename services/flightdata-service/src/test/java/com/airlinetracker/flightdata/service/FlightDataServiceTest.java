@@ -2,6 +2,7 @@ package com.airlinetracker.flightdata.service;
 
 import com.airlinetracker.flightdata.client.FlightAwareClient;
 import com.airlinetracker.flightdata.dto.FlightData;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -15,6 +16,8 @@ import org.springframework.kafka.core.KafkaTemplate;
 import reactor.core.publisher.Mono;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -43,18 +46,23 @@ class FlightDataServiceTest {
     private KafkaTemplate<String, FlightData> kafkaTemplate;
 
     private MeterRegistry meterRegistry;
+    private CircuitBreakerRegistry circuitBreakerRegistry;
     private FlightDataService flightDataService;
 
     @BeforeEach
     void setUp() {
         // Use SimpleMeterRegistry for testing
         meterRegistry = new SimpleMeterRegistry();
-        
-        // Create service with mocked dependencies and real MeterRegistry
+
+        // Create circuit breaker registry
+        circuitBreakerRegistry = CircuitBreakerRegistry.ofDefaults();
+
+        // Create service with mocked dependencies and real registries
         flightDataService = new FlightDataService(
             flightAwareClient,
             kafkaTemplate,
-            meterRegistry
+            meterRegistry,
+            circuitBreakerRegistry
         );
     }
 
@@ -82,11 +90,8 @@ class FlightDataServiceTest {
                 .scheduledOut(Instant.now())
                 .build();
 
-        when(flightAwareClient.getFlightByIdent(ident))
-                .thenReturn(Mono.just(mockFlightData));
-        when(kafkaTemplate.send(anyString(), anyString(), any()))
-                .thenReturn(null);
-
+        when(flightAwareClient.getFlightsByIdent(ident))
+                .thenReturn(Mono.just(List.of(mockFlightData)));
         // Get initial count (note: Micrometer adds _total suffix for Prometheus export)
         Counter cacheMissCounter = meterRegistry.counter("flight_cache_misses", "service", "flightdata-service");
         double initialCount = cacheMissCounter.count();
@@ -148,11 +153,8 @@ class FlightDataServiceTest {
                 .scheduledOut(Instant.now())
                 .build();
 
-        when(flightAwareClient.getFlightByIdent(ident))
-                .thenReturn(Mono.just(mockFlightData));
-        when(kafkaTemplate.send(anyString(), anyString(), any()))
-                .thenReturn(null);
-
+        when(flightAwareClient.getFlightsByIdent(ident))
+                .thenReturn(Mono.just(List.of(mockFlightData)));
         // Get timer before call
         Timer apiTimer = meterRegistry.timer("flightaware_api_duration", "service", "flightdata-service");
         long initialCount = apiTimer.count();
@@ -182,11 +184,8 @@ class FlightDataServiceTest {
                 .status("Landed")
                 .build();
 
-        when(flightAwareClient.getFlightByIdent(anyString()))
-                .thenReturn(Mono.just(mockFlightData));
-        when(kafkaTemplate.send(anyString(), anyString(), any()))
-                .thenReturn(null);
-
+        when(flightAwareClient.getFlightsByIdent(anyString()))
+                .thenReturn(Mono.just(List.of(mockFlightData)));
         Counter cacheMissCounter = meterRegistry.counter("flight_cache_misses", "service", "flightdata-service");
         double initialCount = cacheMissCounter.count();
 
@@ -217,16 +216,30 @@ class FlightDataServiceTest {
                 .ident("METRIC123")
                 .status("En-Route")
                 .build();
-        when(flightAwareClient.getFlightByIdent(anyString()))
-                .thenReturn(Mono.just(mockFlightData));
-        when(kafkaTemplate.send(anyString(), anyString(), any()))
-                .thenReturn(null);
+        when(flightAwareClient.getFlightsByIdent(anyString()))
+                .thenReturn(Mono.just(List.of(mockFlightData)));
         flightDataService.getFlightByIdentUncached("METRIC123");
 
         // Assert: Metrics exist with correct names (base names, Micrometer adds _total suffix for Prometheus)
         assertThat(meterRegistry.find("flight_cache_hits").counter()).isNotNull();
         assertThat(meterRegistry.find("flight_cache_misses").counter()).isNotNull();
         assertThat(meterRegistry.find("flightaware_api_duration").timer()).isNotNull();
+    }
+
+    @Test
+    void publishesOnlyTheExplicitlySelectedFlightForSummaryGeneration() {
+        FlightData selected = FlightData.builder()
+                .faFlightId("UAL123-SELECTED")
+                .ident("UAL123")
+                .status("Scheduled")
+                .build();
+        when(kafkaTemplate.send(anyString(), anyString(), any()))
+                .thenReturn(CompletableFuture.completedFuture(null));
+
+        flightDataService.requestSummary(selected);
+
+        verify(kafkaTemplate).send("flight-data-events", "UAL123-SELECTED", selected);
+        verifyNoMoreInteractions(kafkaTemplate);
     }
 }
 
