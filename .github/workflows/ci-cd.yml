@@ -1,15 +1,15 @@
-name: Airline Tracker CI/CD Pipeline
+name: Airline Tracker Frontier CI
 
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main]
-  workflow_dispatch: # Allow manual triggering
+  workflow_dispatch:
 
 env:
-  JAVA_VERSION: "17"
-  MAVEN_OPTS: -Xmx1024m -XX:+TieredCompilation -XX:TieredStopAtLevel=1
+  JAVA_VERSION: '25'
+  MAVEN_OPTS: -Xmx2g -XX:+TieredCompilation -XX:TieredStopAtLevel=1
 
 permissions:
   contents: read
@@ -17,304 +17,155 @@ permissions:
   actions: read
 
 jobs:
-  # JOB 1: Build and Test All Services
   build-and-test:
-    name: Build & Test All Services
+    name: Java 25 reactor and service tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    # Start infrastructure services for tests
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      postgres:
-        image: postgres:15-alpine
-        env:
-          POSTGRES_DB: airline_tracker_test
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
+    timeout-minutes: 30
     steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
-          fetch-depth: 0 # Full history for better analysis
-
-      - name: ☕ Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: "17"
-          distribution: "temurin"
-          cache: "maven"
-
-      - name: 🔍 Verify Service Structure
-        run: |
-          echo "🔍 Verifying microservices structure..."
-          for service in service-registry api-gateway flightdata-service llm-summary-service; do
-            if [ -f "services/$service/pom.xml" ]; then
-              echo "✅ $service/pom.xml found"
-            else
-              echo "❌ ERROR: services/$service/pom.xml not found"
-              exit 1
-            fi
-          done
-          echo "✅ Service structure check complete"
-
-      - name: 🔨 Build All Services
-        run: |
-          echo "🔨 Building all microservices..."
-          BUILD_FAILED=false
-          
-          for service in service-registry api-gateway flightdata-service llm-summary-service; do
-            echo "🔨 Building $service..."
-            if [ -f "services/$service/pom.xml" ]; then
-              cd services/$service
-              if mvn -B clean package -DskipTests; then
-                echo "✅ $service built successfully"
-              else
-                echo "❌ $service build failed"
-                BUILD_FAILED=true
-              fi
-              cd ../..
-            else
-              echo "❌ ERROR: services/$service/pom.xml not found"
-              BUILD_FAILED=true
-            fi
-          done
-          
-          if [ "$BUILD_FAILED" = true ]; then
-            echo "❌ One or more services failed to build"
-            exit 1
-          fi
-          
-          echo "✅ All services built successfully"
-
-      - name: 🧪 Run Tests
-        env:
-          SPRING_PROFILES_ACTIVE: test
-          SPRING_DATA_REDIS_HOST: localhost
-          SPRING_DATA_REDIS_PORT: 6379
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/airline_tracker_test
-          SPRING_DATASOURCE_USERNAME: test
-          SPRING_DATASOURCE_PASSWORD: test
-          FLIGHTAWARE_API_KEY: test-key
-          OPENAI_API_KEY: test-key
-        run: |
-          echo "🧪 Running tests for all microservices..."
-          TEST_FAILED=false
-          FAILED_SERVICES=()
-          
-          for service in service-registry api-gateway flightdata-service llm-summary-service; do
-            echo ""
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "🧪 Testing: $service"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            
-            if [ -f "services/$service/pom.xml" ]; then
-              cd services/$service
-              
-              # Run tests and capture output
-              if mvn -B test 2>&1 | tee /tmp/${service}-test-output.log; then
-                echo "✅ $service: All tests PASSED"
-              else
-                TEST_EXIT_CODE=${PIPESTATUS[0]}
-                echo "❌ $service: Tests FAILED (exit code: $TEST_EXIT_CODE)"
-                FAILED_SERVICES+=("$service")
-                TEST_FAILED=true
-                
-                # Show last 30 lines of test output for debugging
-                echo ""
-                echo "📋 Last 30 lines of test output for $service:"
-                echo "─────────────────────────────────────────────────"
-                tail -n 30 /tmp/${service}-test-output.log || true
-                echo "─────────────────────────────────────────────────"
-              fi
-              
-              cd ../..
-            else
-              echo "❌ ERROR: services/$service/pom.xml not found"
-              FAILED_SERVICES+=("$service")
-              TEST_FAILED=true
-            fi
-          done
-          
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "📊 Test Summary"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          
-          if [ "$TEST_FAILED" = true ]; then
-            echo "❌ FAILED SERVICES: ${FAILED_SERVICES[*]}"
-            echo ""
-            echo "💡 To debug:"
-            echo "   1. Check the test output above for each failed service"
-            echo "   2. Review test files in services/<service-name>/src/test/java/"
-            echo "   3. Check surefire reports in services/<service-name>/target/surefire-reports/"
-            echo ""
-            exit 1
-          else
-            echo "✅ All services passed tests!"
-            echo "   - service-registry ✅"
-            echo "   - api-gateway ✅"
-            echo "   - flightdata-service ✅"
-            echo "   - llm-summary-service ✅"
-          fi
-
-      - name: 📊 Collect Test Results
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: Build reactor and run tests
+        run: sh ./mvnw -B -ntp clean verify
+      - name: Upload Maven reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: maven-test-reports
           path: |
             services/*/target/surefire-reports/
-            services/*/target/failsafe-reports/
-          retention-days: 30
-          if-no-files-found: ignore
-
-      - name: 📊 Collect Coverage Reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-reports
-          path: |
             services/*/target/site/jacoco/
+          if-no-files-found: ignore
           retention-days: 30
-          if-no-files-found: ignore
 
-      - name: 📦 Archive Build Artifacts
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts
-          path: |
-            services/service-registry/target/*.jar
-            services/api-gateway/target/*.jar
-            services/flightdata-service/target/*.jar
-            services/llm-summary-service/target/*.jar
-          retention-days: 7
-          if-no-files-found: ignore
-
-      - name: 📋 Build Summary
-        if: always()
-        run: |
-          echo "## 🏗️ Build & Test Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Java Version:** 17 (Eclipse Temurin)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Actor:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📦 Services" >> $GITHUB_STEP_SUMMARY
-          echo "- service-registry" >> $GITHUB_STEP_SUMMARY
-          echo "- api-gateway" >> $GITHUB_STEP_SUMMARY
-          echo "- flightdata-service" >> $GITHUB_STEP_SUMMARY
-          echo "- llm-summary-service" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          JOB_STATUS="${{ job.status }}"
-          if [ "$JOB_STATUS" = "success" ]; then
-            echo "✅ **Pipeline Status: PASSING**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Pipeline Status: FAILING**" >> $GITHUB_STEP_SUMMARY
-          fi
-
-  # JOB 2: Security Vulnerability Scanning
-  security-scan:
-    name: Security Scan
+  compose-e2e:
+    name: Full-stack Compose and recovery tests
     runs-on: ubuntu-latest
     needs: build-and-test
-    if: always() # Run even if build has issues
-    timeout-minutes: 15
-    continue-on-error: true # Advisory only, don't fail pipeline
-
+    timeout-minutes: 45
     steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
-          fetch-depth: 0
-
-      - name: ☕ Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: "17"
-          distribution: "temurin"
-          cache: "maven"
-
-      - name: 🔍 Security Check Complete
-        run: |
-          echo "✅ Security scan step complete"
-          echo "This is an advisory scan - results available in artifacts"
-
-      - name: 📤 Upload OWASP Reports
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: Start isolated mock-provider stack
+        run: docker compose -f integration-tests/docker-compose.e2e.yml up --build --detach --wait --wait-timeout 360
+      - name: Run full-stack journey and provider recovery tests
+        run: sh ./mvnw -B -ntp -pl integration-tests -am -Pcompose-e2e verify
+      - name: Capture Compose diagnostics
         if: always()
-        continue-on-error: true
+        run: |
+          mkdir -p artifacts
+          docker compose -f integration-tests/docker-compose.e2e.yml logs --no-color > artifacts/compose.log 2>&1 || true
+      - name: Stop test stack
+        if: always()
+        run: docker compose -f integration-tests/docker-compose.e2e.yml down --remove-orphans
+      - name: Upload E2E evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: owasp-reports
+          name: compose-e2e-evidence
           path: |
-            services/*/target/dependency-check-report.html
-          retention-days: 30
+            artifacts/compose.log
+            integration-tests/target/failsafe-reports/
           if-no-files-found: ignore
+          retention-days: 30
 
-  # JOB 3: Build and Push Docker Images
-  docker-build-push:
-    name: Build & Push Docker Images
+  performance-gate:
+    name: Gatling cache and burst gates
     runs-on: ubuntu-latest
-    needs: [build-and-test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.build-and-test.result == 'success'
-    timeout-minutes: 30
+    needs: build-and-test
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: Start fixture-only performance stack
+        run: docker compose -f integration-tests/docker-compose.e2e.yml -f integration-tests/docker-compose.perf.yml up --build --detach --wait --wait-timeout 360
+      - name: Enforce p95 and success targets
+        run: sh ./mvnw -B -ntp -pl performance-tests -Pperformance-gate gatling:test -Dtarget.baseUrl=http://localhost:8080
+      - name: Capture performance stack diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts
+          docker compose -f integration-tests/docker-compose.e2e.yml -f integration-tests/docker-compose.perf.yml logs --no-color > artifacts/performance-compose.log 2>&1 || true
+      - name: Stop performance stack
+        if: always()
+        run: docker compose -f integration-tests/docker-compose.e2e.yml -f integration-tests/docker-compose.perf.yml down --remove-orphans
+      - name: Upload Gatling report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gatling-performance-evidence
+          path: |
+            performance-tests/target/gatling/
+            artifacts/performance-compose.log
+          if-no-files-found: ignore
+          retention-days: 30
 
+  browser-e2e:
+    name: Playwright browser journey
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run browser journey against deterministic fixtures
+        run: npm run e2e
+      - name: Upload Playwright report and trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-browser-evidence
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  docker-build-push:
+    name: Build and publish tested service images
+    runs-on: ubuntu-latest
+    needs: [build-and-test, compose-e2e, performance-gate, browser-e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       matrix:
-        service:
-          - service-registry
-          - api-gateway
-          - flightdata-service
-          - llm-summary-service
-      max-parallel: 4
-
+        service: [service-registry, api-gateway, flightdata-service, llm-summary-service]
     permissions:
       contents: read
       packages: write
-
     steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v4
-
-      - name: 🔤 Convert repository owner to lowercase
-        run: |
-          echo "REPO_OWNER_LOWERCASE=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-
-      - name: 🐳 Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: 🔐 Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - name: Normalize registry owner
+        run: echo "REPO_OWNER_LOWERCASE=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 🐳 Build and Push Docker Image
-        uses: docker/build-push-action@v5
+      - uses: docker/build-push-action@v6
         with:
-          context: ./services/${{ matrix.service }}
+          context: .
           file: ./services/${{ matrix.service }}/Dockerfile
           push: true
           tags: |
@@ -322,36 +173,3 @@ jobs:
             ghcr.io/${{ env.REPO_OWNER_LOWERCASE }}/${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  # JOB 4: Pipeline Summary
-  pipeline-summary:
-    name: Pipeline Summary
-    runs-on: ubuntu-latest
-    needs: [build-and-test, security-scan]
-    if: always()
-
-    steps:
-      - name: Generate Pipeline Summary
-        run: |
-          echo "# 🚀 Airline Tracker CI/CD Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 📊 Job Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Build & Test | ${{ needs.build-and-test.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Security Scan | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          BUILD_TEST_RESULT="${{ needs.build-and-test.result }}"
-          if [ "$BUILD_TEST_RESULT" = "success" ]; then
-            echo "✅ **Pipeline Status: PASSING**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ **Pipeline Status: FAILING**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### ⚠️ Build & Test Job Failed" >> $GITHUB_STEP_SUMMARY
-            echo "Please check the build-and-test job logs for details." >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "All jobs completed. Check individual job logs for details." >> $GITHUB_STEP_SUMMARY

@@ -4,6 +4,8 @@ Airline Tracker is an academic and portfolio project for travelers and people fo
 
 **Project status:** working portfolio prototype. The local demo uses sample records. Live FlightAware data and live OpenAI summaries require provider credentials and have not been validated in this session. The project has no public-service, accuracy, uptime, load-capacity, or production-readiness claim.
 
+**Frontier implementation:** the Java reactor targets Java 25, Spring Boot 4.1.2, and Spring Cloud 2025.1.2. A pinned Maven Wrapper, full-stack recovery suite, Playwright journey, and Gatling gates are included. Test targets are not measured results; full runtime and participant evidence remain pending.
+
 ## What the product does
 
 1. Search a flight number without creating an account.
@@ -56,21 +58,20 @@ API details and runtime operations:
 - [Pitch and demo walkthrough](docs/PITCH-AND-DEMO.md)
 - [Claims ledger](docs/CLAIMS-LEDGER.md)
 - [Current project status and evidence](docs/PROJECT_COMPLETION_REPORT.md)
+- [Five-session traveler research protocol](docs/TRAVELER-RESEARCH.md)
+- [Installation and verification commands](docs/INSTALLATION.md)
 - [Local demo smoke check](scripts/validate-demo.ps1) (PowerShell) or [Bash version](scripts/validate-demo.sh)
 
 ## Build and verify
 
-Run Maven checks from each service directory:
+Run the Java reactor from the repository root:
 
 ```powershell
-Push-Location services/api-gateway; mvn -B -ntp test; Pop-Location
-Push-Location services/flightdata-service; mvn -B -ntp test; Pop-Location
-Push-Location services/llm-summary-service; mvn -B -ntp test; Pop-Location
-Push-Location services/service-registry; mvn -B -ntp test; Pop-Location
-Push-Location frontend; npm run build; Pop-Location
+.\mvnw.cmd -B -ntp clean verify
+Push-Location frontend; npm ci; npm test; npm run build; Pop-Location
 ```
 
-Some integration tests use Testcontainers and require a reachable Docker daemon. Unit tests that do not need containers can be selected with Maven’s `-Dtest=...` option. The current evidence and any blocked checks are listed in the project status report.
+The full-stack Compose recovery suite, browser journey, and performance gate commands are in [RUN_E2E_TESTS.md](integration-tests/RUN_E2E_TESTS.md). The performance targets are cached p95 `<500 ms`, controlled miss p95 `<2 s`, and `>95%` success for 100 concurrent cached lookups. They are synthetic acceptance targets, not a production SLO or a measured result.
 
 ## Scope and limits
 

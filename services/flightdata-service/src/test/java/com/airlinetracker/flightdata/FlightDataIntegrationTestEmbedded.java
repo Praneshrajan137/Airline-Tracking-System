@@ -6,7 +6,8 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -41,15 +42,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 7. Second call uses cache (no API call)
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 @EmbeddedKafka(
     partitions = 1,
-    topics = {"flight-data-updated"},
-    brokerProperties = {"listeners=PLAINTEXT://localhost:9093", "port=9093"}
+    topics = {"flight-data-updated"}
 )
 @TestPropertySource(properties = {
     "spring.data.redis.host=localhost",
     "spring.data.redis.port=6370",
-    "spring.kafka.bootstrap-servers=localhost:9093",
     "eureka.client.enabled=false",
     "flightaware.base-url=http://localhost:8089",
     "flightaware.api-key=test-api-key"

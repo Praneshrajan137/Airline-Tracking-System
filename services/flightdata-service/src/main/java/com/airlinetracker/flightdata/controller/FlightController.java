@@ -65,7 +65,11 @@ public class FlightController {
     @GetMapping("/{ident}")
     public FlightData getFlightByIdent(
             @PathVariable @NotBlank @Pattern(regexp = FLIGHT_IDENT_PATTERN) String ident) {
-        return flightDataService.getFlightByIdent(ident.toUpperCase());
+        List<FlightData> flights = flightDataService.getFlightsByIdent(ident.toUpperCase());
+        if (flights.size() != 1) {
+            throw new AmbiguousFlightException(ident, flights.size());
+        }
+        return flights.get(0);
     }
 
     @ExceptionHandler(FlightNotFoundException.class)

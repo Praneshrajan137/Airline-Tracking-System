@@ -1,0 +1,8 @@
+services:
+  flightdata-service:
+    environment:
+      DEMO_ENABLED: "true"
+
+  llm-summary-service:
+    environment:
+      DEMO_ENABLED: "true"

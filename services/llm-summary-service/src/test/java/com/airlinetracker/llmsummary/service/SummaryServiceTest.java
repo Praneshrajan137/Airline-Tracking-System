@@ -185,6 +185,24 @@ class SummaryServiceTest {
     }
 
     @Test
+    @DisplayName("Exposes complete summaries and the full ident history")
+    void testSummaryLookupsByInstanceAndIdent() {
+        FlightSummary summary = FlightSummary.builder()
+                .ident("UAL123")
+                .faFlightId(testFlightData.getFaFlightId())
+                .summaryText("Flight summary")
+                .build();
+        when(repository.findByFaFlightId(testFlightData.getFaFlightId())).thenReturn(Optional.of(summary));
+        when(repository.findFirstByIdentOrderByGeneratedAtDesc("UAL123")).thenReturn(Optional.of(summary));
+        when(repository.findAllByIdentOrderByGeneratedAtDesc("UAL123")).thenReturn(java.util.List.of(summary));
+
+        assertThat(summaryService.getFlightSummaryByFaFlightId(testFlightData.getFaFlightId()))
+                .contains(summary);
+        assertThat(summaryService.getFlightSummaryByIdent("UAL123")).contains(summary);
+        assertThat(summaryService.getFlightSummariesByIdent("UAL123")).containsExactly(summary);
+    }
+
+    @Test
     @DisplayName("Should handle OpenAI client errors gracefully")
     void testProcessFlightData_OpenAIError() {
         // Given: OpenAI client throws exception

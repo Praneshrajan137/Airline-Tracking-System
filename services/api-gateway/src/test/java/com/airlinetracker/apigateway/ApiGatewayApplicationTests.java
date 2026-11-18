@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.cloud.gateway.route.RouteLocator;
+import org.springframework.cloud.gateway.route.RouteDefinitionLocator;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
@@ -13,11 +14,17 @@ import reactor.core.publisher.Mono;
 import static org.assertj.core.api.Assertions.assertThat;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-@SpringBootTest(properties = "eureka.client.enabled=false")
+@SpringBootTest(properties = {
+        "eureka.client.enabled=false",
+        "GATEWAY_FLIGHT_BURST_CAPACITY=100"
+})
 class ApiGatewayApplicationTests {
 
     @Autowired
     private RouteLocator routeLocator;
+
+    @Autowired
+    private RouteDefinitionLocator routeDefinitionLocator;
 
     @Autowired
     private WebFilterChainProxy securityFilterChain;
@@ -49,6 +56,16 @@ class ApiGatewayApplicationTests {
             assertThat(route.getUri().getScheme()).isEqualTo("lb");
             assertThat(route.getFilters()).hasSize(1);
         });
+    }
+
+    @Test
+    void flightLookupRouteAllowsAOneHundredRequestBurst() {
+        var route = routeDefinitionLocator.getRouteDefinitions().collectList().block().stream()
+                .filter(definition -> definition.getId().equals("flightdata-service-route"))
+                .findFirst().orElseThrow();
+
+        assertThat(route.getFilters()).singleElement().satisfies(filter ->
+                assertThat(filter.getArgs()).containsEntry("redis-rate-limiter.burstCapacity", "100"));
     }
 
     @Test

@@ -36,7 +36,7 @@ For EVERY feature implementation:
 
 - NO code without a test
 
-- NO test modifications unless explicitly requested
+- Do not modify tests unless the user or an accepted plan authorizes it. When authorized, update or add the test before changing implementation code.
 
 ### Rule 3: AI SELF-REVIEW CHECKLIST
 
@@ -76,7 +76,8 @@ ALWAYS structure responses as:
 
 ### Java/Spring Boot
 
-- Use Spring Boot 3.x
+- Use Java 25 and Spring Boot 4.1.x. Keep Spring Cloud on the compatible 2025.1.x train.
+- Build from the root Maven reactor and use the pinned Maven Wrapper.
 
 - Dependency Injection via constructors
 
@@ -132,7 +133,7 @@ ALWAYS structure responses as:
 
 ### Technology Stack
 
-- Java 17 + Spring Boot 3.x
+- Java 25 + Spring Boot 4.1.x
 
 - Spring Cloud (Eureka, Gateway)
 

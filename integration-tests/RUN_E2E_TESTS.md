@@ -1,145 +1,51 @@
-# Running E2E Integration Tests
+# Full-stack Compose E2E
 
-## Prerequisites
+## Requirements
 
-1. **Docker & Docker Compose** installed and running
-2. **All microservice JARs built** (see below)
-3. **Maven 3.8+** and **Java 17**
+- JDK 25 and the repository Maven Wrapper.
+- Docker Desktop using the Linux container engine.
 
-## Step 1: Build All Service JARs
+The stack publishes test endpoints only to `127.0.0.1`. Its bridge network is internal and points provider calls to WireMock, so the running services have no route to live FlightAware or OpenAI APIs.
 
-From the project root, build all 4 microservices:
+## Run
 
-```bash
-cd airline-tracker-system/services
-
-# Build each service
-cd service-registry && mvn clean package -DskipTests && cd ..
-cd api-gateway && mvn clean package -DskipTests && cd ..
-cd flightdata-service && mvn clean package -DskipTests && cd ..
-cd llm-summary-service && mvn clean package -DskipTests && cd ..
-```
-
-**✅ Verify JARs exist:**
-- `service-registry/target/service-registry-1.0.0.jar`
-- `api-gateway/target/api-gateway-1.0.0.jar`
-- `flightdata-service/target/flightdata-service-1.0.0.jar`
-- `llm-summary-service/target/llm-summary-service-1.0.0.jar`
-
-## Step 2: Start Docker Compose Stack
-
-From the integration-tests directory:
-
-```bash
-cd ../integration-tests
-docker-compose -f docker-compose.e2e.yml up -d
-```
-
-**Wait for all services to be healthy** (~2-3 minutes):
-
-```bash
-docker-compose -f docker-compose.e2e.yml ps
-```
-
-All services should show `healthy` status.
-
-## Step 3: Run E2E Tests
-
-```bash
-mvn clean test
-```
-
-## Step 4: Cleanup
-
-Stop and remove all containers:
-
-```bash
-docker-compose -f docker-compose.e2e.yml down -v
-```
-
----
-
-## Alternative: One-Command E2E Test
-
-Create a script to automate all steps:
-
-### Windows (PowerShell)
+From the repository root:
 
 ```powershell
-# run-e2e-tests.ps1
-cd airline-tracker-system\services
-mvn clean install -DskipTests
-cd ..\integration-tests
-docker-compose -f docker-compose.e2e.yml up -d
-Start-Sleep -Seconds 60  # Wait for services
-mvn test
-docker-compose -f docker-compose.e2e.yml down -v
+docker compose -f integration-tests/docker-compose.e2e.yml up --build -d --wait --wait-timeout 360
+.\mvnw.cmd -B -ntp -pl integration-tests -am -Pcompose-e2e verify
+docker compose -f integration-tests/docker-compose.e2e.yml down --remove-orphans
 ```
 
-### Linux/Mac (Bash)
+The `compose-e2e` Maven profile runs the cross-service Java suite with Failsafe. The default Surefire run excludes that suite because it requires the Compose stack.
 
-```bash
-#!/bin/bash
-# run-e2e-tests.sh
-cd airline-tracker-system/services
-mvn clean install -DskipTests
-cd ../integration-tests
-docker-compose -f docker-compose.e2e.yml up -d
-sleep 60  # Wait for services
-mvn test
-docker-compose -f docker-compose.e2e.yml down -v
+Scenarios cover candidate lookup, selection by `fa_flight_id`, cache reuse, provider not-found/error handling, and summary recovery after a mocked OpenAI rate limit. Reports are under `integration-tests/target/failsafe-reports/`.
+
+## Performance overlay
+
+The performance overlay sets `DEMO_ENABLED=true`, keeping candidate data deterministic and visibly labeled while preserving Redis caching. It tests one controlled miss followed by 100 simultaneous cached lookups:
+
+```powershell
+docker compose -f integration-tests/docker-compose.e2e.yml -f integration-tests/docker-compose.perf.yml up --build -d --wait --wait-timeout 360
+.\mvnw.cmd -B -ntp -pl performance-tests -Pperformance-gate gatling:test -Dtarget.baseUrl=http://localhost:8080
+docker compose -f integration-tests/docker-compose.e2e.yml -f integration-tests/docker-compose.perf.yml down --remove-orphans
 ```
 
----
+The gate checks cached lookup p95 `<500 ms`, controlled miss p95 `<2 s`, and success `>95%` at 100 concurrent cached requests. These synthetic local results must not be described as production SLOs. Gatling reports are under `performance-tests/target/gatling/`.
 
-## Troubleshooting
+## Browser journey
 
-### Services not starting
+The browser journey runs against the local Vite server and intercepts API responses with deterministic fixtures; it does not require the Compose stack:
 
-```bash
-# Check logs
-docker-compose -f docker-compose.e2e.yml logs service-registry
-docker-compose -f docker-compose.e2e.yml logs api-gateway
+```powershell
+cd frontend
+npm ci
+npx playwright install chromium
+npm run e2e
 ```
 
-### Port conflicts
+It checks guest search, source labels, explicit selection, and that a summary request is made only for the selected instance.
 
-If ports 8080, 8081, 8082, 8761 are already in use, stop conflicting services:
+## Verification status
 
-```bash
-docker ps  # Find containers using these ports
-docker stop <container-id>
-```
-
-### Clean slate restart
-
-```bash
-docker-compose -f docker-compose.e2e.yml down -v
-docker system prune -f
-docker-compose -f docker-compose.e2e.yml up -d --build
-```
-
----
-
-## Test Expected Results
-
-```
-[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
-[INFO] 
-[INFO] Results:
-[INFO] 
-[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
-[INFO]
-[INFO] ------------------------------------------------------------------------
-[INFO] BUILD SUCCESS
-[INFO] ------------------------------------------------------------------------
-```
-
-All 5 E2E tests should pass:
-1. ✅ Happy Path - Complete Flow
-2. ✅ Cache Hit Performance
-3. ✅ Error Handling - Flight Not Found
-4. ✅ Error Handling - FlightAware API Down
-5. ✅ Error Handling - OpenAI Rate Limit
-
-
+The tests and gates are implemented, but a passing result requires running them in the stated environment. No latency, availability, provider-live, user-value, or production-readiness result is claimed until the corresponding evidence exists.

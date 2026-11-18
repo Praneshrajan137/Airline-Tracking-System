@@ -5,8 +5,8 @@ import com.airlinetracker.llmsummary.service.SummaryService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
@@ -30,7 +30,7 @@ class SummaryControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @MockitoBean
     private SummaryService summaryService;
 
     @Test
@@ -149,6 +149,32 @@ class SummaryControllerTest {
         mockMvc.perform(get("/api/v1/flight/UAL123/summary/UAL123-20261117-airline-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.fa_flight_id").value("UAL123-20261117-airline-1"));
+    }
+
+    @Test
+    @DisplayName("An exact flight instance without a summary is not ready yet")
+    void testGetSummary_ByFlightInstance_NotReady() throws Exception {
+        when(summaryService.getFlightSummaryByFaFlightId("UAL123-20261117-airline-1"))
+                .thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/v1/flight/UAL123/summary/UAL123-20261117-airline-1"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Summary not ready"));
+    }
+
+    @Test
+    @DisplayName("An exact flight instance cannot return another flight's summary")
+    void testGetSummary_ByFlightInstance_MismatchedIdent() throws Exception {
+        FlightSummary summary = FlightSummary.builder()
+                .ident("DAL456")
+                .faFlightId("DAL456-20261117-airline-1")
+                .build();
+        when(summaryService.getFlightSummaryByFaFlightId("DAL456-20261117-airline-1"))
+                .thenReturn(Optional.of(summary));
+
+        mockMvc.perform(get("/api/v1/flight/UAL123/summary/DAL456-20261117-airline-1"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Summary not ready"));
     }
 
     @Test

@@ -4,7 +4,6 @@ import com.airlinetracker.e2e.dto.FlightDataResponse;
 import com.airlinetracker.e2e.dto.FlightSummaryResponse;
 import com.airlinetracker.e2e.util.HealthCheckUtil;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import com.github.tomakehurst.wiremock.client.WireMockBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.*;
 import org.springframework.http.HttpStatus;
@@ -51,12 +50,20 @@ import static org.awaitility.Awaitility.await;
 @DisplayName("E2E Flight Tracking Integration Test Suite")
 class E2EFlightTrackingIntegrationTest {
 
-    private static final String API_GATEWAY_BASE_URL = "http://localhost:8080";
-    private static final String WIREMOCK_BASE_URL = "http://localhost:8089";
-    private static final int WIREMOCK_PORT = 8089;
+    private static final String API_GATEWAY_BASE_URL = setting("E2E_API_GATEWAY_URL", "http://localhost:8080");
+    private static final String EUREKA_HEALTH_URL = setting("E2E_EUREKA_HEALTH_URL", "http://localhost:8761/actuator/health");
+    private static final String FLIGHTDATA_HEALTH_URL = setting("E2E_FLIGHTDATA_HEALTH_URL", "http://localhost:8081/actuator/health");
+    private static final String SUMMARY_HEALTH_URL = setting("E2E_SUMMARY_HEALTH_URL", "http://localhost:8082/actuator/health");
+    private static final String WIREMOCK_HOST = setting("E2E_WIREMOCK_HOST", "localhost");
+    private static final int WIREMOCK_PORT = Integer.parseInt(setting("E2E_WIREMOCK_PORT", "8089"));
 
     private static RestTemplate restTemplate;
     private static com.github.tomakehurst.wiremock.client.WireMock wireMockClient;
+
+    private static String setting(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
+    }
 
     @BeforeAll
     static void setupAll() {
@@ -68,12 +75,13 @@ class E2EFlightTrackingIntegrationTest {
         restTemplate = new RestTemplate();
 
         // Configure WireMock client
-        wireMockClient = new WireMock("localhost", WIREMOCK_PORT);
-        WireMock.configureFor("localhost", WIREMOCK_PORT);
+        wireMockClient = new WireMock(WIREMOCK_HOST, WIREMOCK_PORT);
+        WireMock.configureFor(WIREMOCK_HOST, WIREMOCK_PORT);
 
         // Wait for all services to be healthy
         log.info("Waiting for all services to become healthy...");
-        boolean allHealthy = HealthCheckUtil.waitForAllServices(API_GATEWAY_BASE_URL);
+        boolean allHealthy = HealthCheckUtil.waitForAllServices(
+                API_GATEWAY_BASE_URL, EUREKA_HEALTH_URL, FLIGHTDATA_HEALTH_URL, SUMMARY_HEALTH_URL);
 
         if (!allHealthy) {
             throw new RuntimeException("❌ Not all services became healthy - cannot proceed with tests");
@@ -309,7 +317,7 @@ class E2EFlightTrackingIntegrationTest {
         log.info("-".repeat(80));
 
         // ARRANGE
-        String testIdent = "INVALID999";
+        String testIdent = "ZZZ9999";
 
         log.info("🎯 Testing error handling for invalid flight: {}", testIdent);
 

@@ -9,9 +9,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.Serializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
-import org.springframework.boot.ssl.SslBundles;
+import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.EnableKafka;
@@ -45,10 +43,8 @@ import java.nio.charset.StandardCharsets;
 public class KafkaConsumerConfig {
 
     @Bean
-    public ConsumerFactory<String, FlightData> consumerFactory(
-            KafkaProperties kafkaProperties, ObjectProvider<SslBundles> sslBundlesProvider) {
-        Map<String, Object> config = flightDataConsumerProperties(
-                kafkaProperties, sslBundlesProvider.getIfAvailable());
+    public ConsumerFactory<String, FlightData> consumerFactory(KafkaProperties kafkaProperties) {
+        Map<String, Object> config = flightDataConsumerProperties(kafkaProperties);
         
         return new DefaultKafkaConsumerFactory<>(
                 config,
@@ -69,10 +65,8 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public KafkaTemplate<Object, Object> deadLetterKafkaTemplate(
-            KafkaProperties kafkaProperties, ObjectProvider<SslBundles> sslBundlesProvider) {
-        Map<String, Object> producerProperties = deadLetterProducerProperties(
-                kafkaProperties, sslBundlesProvider.getIfAvailable());
+    public KafkaTemplate<Object, Object> deadLetterKafkaTemplate(KafkaProperties kafkaProperties) {
+        Map<String, Object> producerProperties = deadLetterProducerProperties(kafkaProperties);
         ProducerFactory<Object, Object> producerFactory = new DefaultKafkaProducerFactory<>(
                 producerProperties, deadLetterKeySerializer(), deadLetterValueSerializer());
         return new KafkaTemplate<>(producerFactory);
@@ -111,14 +105,12 @@ public class KafkaConsumerConfig {
         return (topic, key) -> key == null ? null : key.toString().getBytes(StandardCharsets.UTF_8);
     }
 
-    static Map<String, Object> deadLetterProducerProperties(
-            KafkaProperties kafkaProperties, SslBundles sslBundles) {
-        return new HashMap<>(kafkaProperties.buildProducerProperties(sslBundles));
+    static Map<String, Object> deadLetterProducerProperties(KafkaProperties kafkaProperties) {
+        return new HashMap<>(kafkaProperties.buildProducerProperties());
     }
 
-    static Map<String, Object> flightDataConsumerProperties(
-            KafkaProperties kafkaProperties, SslBundles sslBundles) {
-        Map<String, Object> config = new HashMap<>(kafkaProperties.buildConsumerProperties(sslBundles));
+    static Map<String, Object> flightDataConsumerProperties(KafkaProperties kafkaProperties) {
+        Map<String, Object> config = new HashMap<>(kafkaProperties.buildConsumerProperties());
         config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");

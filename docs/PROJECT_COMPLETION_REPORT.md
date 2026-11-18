@@ -1,6 +1,11 @@
 # Project completion report
+## Implementation update — 2026-11-18
 
-**Review date:** 2026-11-17
+The project now has a root Maven reactor targeting Java 25, Spring Boot 4.1.2, Spring Cloud 2025.1.2, and the Maven 3.9.16 wrapper. The full seven-module reactor compiled and packaged with Java 17 compatibility overrides, and 75 focused backend tests passed across the four services. This does not verify the Java 25 runtime target. One Playwright browser journey passed against the local Vite app, and the root, E2E, and performance Compose files pass configuration validation. Docker Desktop is unavailable, so image builds, full-stack recovery tests, and Gatling latency/error-rate runs remain unverified. The synthetic latency thresholds are targets, not measured claims.
+
+The planned traveler study has a five-session protocol and recording templates in [TRAVELER-RESEARCH.md](TRAVELER-RESEARCH.md). No participants were contacted and no findings are claimed. No live or paid provider calls were made.
+
+**Review date:** 2026-11-18
 **Project:** Airline Tracker
 **Assessment:** Implemented as a local portfolio demo with a tested guest journey. Full composed runtime, live provider behavior, traveler need, and production readiness remain unverified.
 
@@ -15,7 +20,7 @@ Evidence gathered in this workspace:
 - Service registry: **5 tests passed** in the module test run.
 - Flight-data service: **19 focused tests passed** across provider parsing, dated demo fixtures, service, controller, and quota enforcement.
 - Summary service: **45 focused tests passed** across provider request handling, selected-instance retrieval, controller, service, repository, global quota enforcement, Kafka retry policy, JSON DLT serialization, topic/partition routing, failed DLT-send handling, and inherited consumer/producer security properties.
-- API gateway: **5 tests passed**, covering configured routing and guest/protected route behavior.
+- API gateway: **6 tests passed**, covering configured routing, the 100-request flight lookup burst, and guest/protected route behavior.
 - Both `docker compose config --quiet` and `docker compose -f integration-tests/docker-compose.e2e.yml config --quiet` passed.
 - A Compose override check resolved `KAFKA_TOPIC_FLIGHT_DATA=airline-demo-events` to the same topic in both services and passed `KAFKA_TOPIC_PARTITIONS=4` plus `KAFKA_TOPIC_REPLICATION_FACTOR=2` to the DLT service.
 - Integration test Java sources compiled with `mvn -B -ntp -DskipTests test-compile`; the E2E suite did not run.

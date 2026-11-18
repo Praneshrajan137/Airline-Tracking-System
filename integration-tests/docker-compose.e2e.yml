@@ -123,9 +123,13 @@ services:
     depends_on:
       service-registry:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: docker
       SERVER_PORT: 8080
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
       EUREKA_DEFAULT_ZONE: http://service-registry:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: api-gateway
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
@@ -227,7 +231,36 @@ services:
     networks:
       - airline-network
 
+  e2e-test-runner:
+    image: maven:3.9.16-eclipse-temurin-25-alpine
+    container_name: e2e-test-runner
+    profiles: ["e2e-test"]
+    working_dir: /workspace
+    command: >-
+      mvn -o -B -ntp -f pom.xml -Pexternal-build-output,compose-e2e
+      -pl integration-tests -am -Dairline.build.root=/tmp/codex-airline-tracker-java25 clean verify
+    environment:
+      E2E_API_GATEWAY_URL: http://api-gateway:8080
+      E2E_EUREKA_HEALTH_URL: http://service-registry:8761/actuator/health
+      E2E_FLIGHTDATA_HEALTH_URL: http://flightdata-service:8081/actuator/health
+      E2E_SUMMARY_HEALTH_URL: http://llm-summary-service:8082/actuator/health
+      E2E_WIREMOCK_HOST: wiremock
+      E2E_WIREMOCK_PORT: "8080"
+    volumes:
+      - ..:/workspace
+      - ../.maven-local-repository:/root/.m2/repository
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+      flightdata-service:
+        condition: service_healthy
+      llm-summary-service:
+        condition: service_healthy
+    networks:
+      - airline-network
+
 networks:
   airline-network:
     driver: bridge
+    internal: true
 

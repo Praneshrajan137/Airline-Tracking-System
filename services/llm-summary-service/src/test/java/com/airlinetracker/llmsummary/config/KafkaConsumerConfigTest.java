@@ -15,7 +15,7 @@ import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.kafka.support.ExponentialBackOffWithMaxRetries;
 import org.springframework.kafka.listener.DefaultErrorHandler;
-import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
+import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.util.backoff.BackOff;
@@ -101,7 +101,7 @@ class KafkaConsumerConfigTest {
         properties.getProperties().put("security.protocol", "SASL_SSL");
         properties.getProperties().put("sasl.mechanism", "PLAIN");
 
-        var producerProperties = KafkaConsumerConfig.deadLetterProducerProperties(properties, null);
+        var producerProperties = KafkaConsumerConfig.deadLetterProducerProperties(properties);
 
         assertThat(producerProperties).containsEntry("bootstrap.servers", List.of("broker.example:9093"));
         assertThat(producerProperties).containsEntry("security.protocol", "SASL_SSL");
@@ -116,7 +116,7 @@ class KafkaConsumerConfigTest {
         properties.getProperties().put("security.protocol", "SASL_SSL");
         properties.getProperties().put("sasl.mechanism", "PLAIN");
 
-        var consumerProperties = KafkaConsumerConfig.flightDataConsumerProperties(properties, null);
+        var consumerProperties = KafkaConsumerConfig.flightDataConsumerProperties(properties);
 
         assertThat(consumerProperties).containsEntry("bootstrap.servers", List.of("broker.example:9093"));
         assertThat(consumerProperties).containsEntry(ConsumerConfig.GROUP_ID_CONFIG, "flight-data-consumer");
@@ -133,6 +133,13 @@ class KafkaConsumerConfigTest {
         assertThat(deadLetter.name()).isEqualTo("flight-data-events.DLT");
         assertThat(deadLetter.numPartitions()).isEqualTo(4);
         assertThat(deadLetter.replicationFactor()).isEqualTo((short) 3);
+    }
+
+    @Test
+    void rejectsDeadLetterTopicWithInvalidPartitionCounts() {
+        assertThatThrownBy(() -> KafkaConsumerConfig.topicDefinition("flight-data-events.DLT", 0, 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Kafka topic partitions and replication factor must be positive");
     }
 
     @Test

@@ -10,7 +10,8 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,7 +22,8 @@ import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
@@ -58,9 +60,11 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties = {
                 "eureka.client.enabled=false",
                 "eureka.client.register-with-eureka=false",
-                "eureka.client.fetch-registry=false"
+                "eureka.client.fetch-registry=false",
+                "openai.rate-limit.calls-per-minute=100"
         }
 )
+@AutoConfigureTestRestTemplate
 @Testcontainers
 @EmbeddedKafka(
         partitions = 1,
@@ -72,14 +76,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EndToEndIntegrationTest {
 
-    // ========== Testcontainers Setup (PostgreSQL only) ==========
+    // ========== Testcontainers Setup ==========
 
     @Container
-    static PostgreSQLContainer<?> postgresContainer = new PostgreSQLContainer<>(
+    static PostgreSQLContainer postgresContainer = new PostgreSQLContainer(
             DockerImageName.parse("postgres:15-alpine"))
             .withDatabaseName("testdb")
             .withUsername("testuser")
             .withPassword("testpass");
+
+    @Container
+    static GenericContainer<?> redisContainer = new GenericContainer<>(
+            DockerImageName.parse("redis:7-alpine"))
+            .withExposedPorts(6379);
 
     /**
      * Configure Spring properties dynamically from Testcontainers
@@ -92,6 +101,10 @@ class EndToEndIntegrationTest {
         registry.add("spring.datasource.username", postgresContainer::getUsername);
         registry.add("spring.datasource.password", postgresContainer::getPassword);
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
+
+        // Redis backs the OpenAI provider quota counter used by the production client.
+        registry.add("spring.data.redis.host", redisContainer::getHost);
+        registry.add("spring.data.redis.port", redisContainer::getFirstMappedPort);
 
         // Kafka topic configuration
         registry.add("kafka.topics.flight-data-events", () -> "flight-data-events");
@@ -418,7 +431,7 @@ class EndToEndIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().get("error")).isEqualTo("Flight summary not found");
+        assertThat(response.getBody().get("error")).isEqualTo("Summary not ready");
 
         System.out.println("✅ Error handling test passed: No summary saved on OpenAI failure");
     }
@@ -432,7 +445,7 @@ class EndToEndIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().get("error")).isEqualTo("Flight summary not found");
+        assertThat(response.getBody().get("error")).isEqualTo("Summary not ready");
 
         System.out.println("✅ 404 test passed");
     }

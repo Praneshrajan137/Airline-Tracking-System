@@ -2,8 +2,11 @@
 .env.*
 !.env.example
 .git
-**/.idea
+**/_ul
+_ul
 **/target
 **/node_modules
 **/dist
+**/.idea
+**/.vscode
 **/*.log

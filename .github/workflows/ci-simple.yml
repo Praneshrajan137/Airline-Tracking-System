@@ -1,132 +1,39 @@
-# ============================================
-# SIMPLIFIED CI PIPELINE - STARTER WORKFLOW
-# ============================================
-# This is a minimal CI pipeline that focuses on core functionality
-# Use this to verify the basic setup works before running the full pipeline
-#
-# Features:
-#   ✅ Fast execution (< 10 minutes)
-#   ✅ Builds all 4 microservices
-#   ✅ Runs unit tests only (skips integration tests)
-#   ✅ Basic security checks
-#   ✅ No Docker builds (faster feedback)
-#
-# When to use:
-#   - Testing CI/CD setup for the first time
-#   - Quick validation of code changes
-#   - Pull requests (faster feedback loop)
-#
-# Trigger: Push to any branch or manual
-
-name: Simple CI Build
+name: Simple Java and frontend CI
 
 on:
   push:
-    branches: ['**'] # All branches
+    branches: ['**']
   pull_request:
     branches: [main, develop]
-  workflow_dispatch: # Manual trigger
-
-env:
-  JAVA_VERSION: '17'
-  MAVEN_OPTS: -Xmx1024m
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   quick-build:
-    name: Quick Build & Test
+    name: Java 25 and frontend checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    timeout-minutes: 25
     steps:
-      - name: 📥 Checkout Code
-        uses: actions/checkout@v3.5.3
-
-      - name: ☕ Set up JDK 17
-        uses: actions/setup-java@v3.11.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: 'maven'
-
-      - name: 📋 Display Repository Info
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: Compile all Java modules
+        run: sh ./mvnw -B -ntp -DskipTests package
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Run frontend unit tests and production build
+        working-directory: frontend
         run: |
-          echo "## 🔍 Repository Information" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Actor:** @${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Event:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "🔍 Listing services directory..."
-          ls -la services/ || echo "services/ directory not found"
-
-      - name: 🔨 Build Service Registry
-        run: |
-          echo "🔨 Building service-registry..."
-          if [ -f "services/service-registry/pom.xml" ]; then
-            cd services/service-registry
-            mvn -B clean package -DskipTests
-            echo "✅ service-registry built successfully"
-          else
-            echo "⚠️  WARNING: service-registry/pom.xml not found"
-            exit 1
-          fi
-
-      - name: 🔨 Build API Gateway
-        run: |
-          echo "🔨 Building api-gateway..."
-          if [ -f "services/api-gateway/pom.xml" ]; then
-            cd services/api-gateway
-            mvn -B clean package -DskipTests
-            echo "✅ api-gateway built successfully"
-          else
-            echo "⚠️  WARNING: api-gateway/pom.xml not found"
-            exit 1
-          fi
-
-      - name: 🔨 Build FlightData Service
-        run: |
-          echo "🔨 Building flightdata-service..."
-          if [ -f "services/flightdata-service/pom.xml" ]; then
-            cd services/flightdata-service
-            mvn -B clean package -DskipTests
-            echo "✅ flightdata-service built successfully"
-          else
-            echo "⚠️  WARNING: flightdata-service/pom.xml not found"
-            exit 1
-          fi
-
-      - name: 🔨 Build LLM Summary Service
-        run: |
-          echo "🔨 Building llm-summary-service..."
-          if [ -f "services/llm-summary-service/pom.xml" ]; then
-            cd services/llm-summary-service
-            mvn -B clean package -DskipTests
-            echo "✅ llm-summary-service built successfully"
-          else
-            echo "⚠️  WARNING: llm-summary-service/pom.xml not found"
-            exit 1
-          fi
-
-      - name: 📋 Build Summary
-        if: always()
-        run: |
-          echo "## 🏗️ Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ✅ Build Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "All 4 microservices built successfully!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Services Built:**" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ service-registry" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ api-gateway" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ flightdata-service" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ llm-summary-service" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Next Steps:**" >> $GITHUB_STEP_SUMMARY
-          echo "- This was a simplified build (tests skipped)" >> $GITHUB_STEP_SUMMARY
-          echo "- For full CI/CD pipeline with tests, push to \`main\` or \`develop\`" >> $GITHUB_STEP_SUMMARY
+          npm test
+          npm run build

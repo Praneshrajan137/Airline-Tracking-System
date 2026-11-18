@@ -5,6 +5,7 @@
 
 # Maven
 target/
+.maven-local-repository/
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
@@ -41,6 +42,8 @@ coverage/
 *.coveragexml
 jacoco.exec
 frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
 
 # JavaScript dependencies and generated TypeScript build metadata
 **/node_modules/

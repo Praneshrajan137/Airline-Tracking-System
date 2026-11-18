@@ -1,6 +1,6 @@
 # Current product decisions
 
-Updated 2026-11-17. This replaces the prior decision draft, which contained unsupported provider pricing, uptime, model, and production claims.
+Updated 2026-11-18. This replaces the prior decision draft, which contained unsupported provider pricing, uptime, model, and production claims.
 
 ## Audience and distribution
 
@@ -13,6 +13,24 @@ Updated 2026-11-17. This replaces the prior decision draft, which contained unsu
 **Decision:** Keep the four Spring services: service registry, gateway, flight data, and summary.
 
 **Reason:** The repository is an academic microservices demonstration with event-based summary generation. A monolith could reduce local operations, but would remove the architecture the project is intended to show. No load or scale result proves that four services improve user outcomes.
+
+## Java platform and build
+
+**Decision:** Use Java 25 LTS, Spring Boot 4.1.2, Spring Cloud 2025.1.2, a root Maven reactor, and a Maven 3.9.16 wrapper.
+
+**Reason:** This establishes one reproducible Java baseline across all four services and their test modules. The Boot 4 migration updates modular web, Kafka, and test starters. Java 25 runtime verification remains pending until a JDK 25 build completes.
+
+## Verification gates
+
+**Decision:** Require a full-stack WireMock Compose recovery suite, a deterministic Playwright browser journey, and a Gatling cache/burst gate in CI. Keep local demo and performance runs fixture-only.
+
+**Reason:** These checks exercise the user flow and failure/load boundaries without making paid provider calls. Their acceptance limits are not production SLO claims; the Compose, browser, and Gatling reports must be retained as evidence.
+
+## Traveler research
+
+**Decision:** Prepare five moderated usability sessions and do not contact participants without explicit authorization.
+
+**Reason:** Five sessions are the selected initial qualitative sample. The task guide and measures are ready in [TRAVELER-RESEARCH.md](TRAVELER-RESEARCH.md); findings stay pending until sessions occur.
 
 ## Flight identity
 

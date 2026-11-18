@@ -1,6 +1,6 @@
 # Frontier calibration
 
-**Calibration date:** 2026-11-17. This is a desk review of public product documentation, not a hands-on comparative benchmark. Product performance figures below are vendor-published claims and have not been independently measured.
+**Calibration date:** 2026-11-18. This is a desk review of public product documentation, not a hands-on comparative benchmark. Product performance figures below are vendor-published claims and have not been independently measured.
 
 ## Products and leading properties
 
@@ -32,4 +32,4 @@ The strongest defensible difference is the implementation's explicit ambiguity h
 - A queue acknowledgement does not prove successful summary persistence. The read path has bounded polling and an explicit requeue action; a running Kafka/Postgres outage-and-recovery exercise is still required before any reliability claim.
 - The four-service design adds local operational dependencies. It is retained to demonstrate the repository's portfolio architecture, not because capacity or user-outcome evidence shows it is better than a single service.
 
-The largest outcome gap is that the value proposition is only exercised with fixtures and mocked provider boundaries. A real traveler cannot yet rely on this workspace as a demonstrated live tracker. The next highest-gain evidence is a clean Compose run with Redis/Kafka/Postgres, then a credentialed but budget-controlled provider contract check, followed by moderated traveler usability sessions. Performance and deployment claims remain unmade until those runs exist.
+The largest outcome gap is that the value proposition is only exercised with fixtures and mocked provider boundaries. A real traveler cannot yet rely on this workspace as a demonstrated live tracker. The five-session moderated protocol is prepared in [TRAVELER-RESEARCH.md](TRAVELER-RESEARCH.md); participants have not been contacted and no sessions or findings exist. The new Compose recovery and Gatling checks are implemented as reproducible gates, but remain unverified until run reports exist. No performance, availability, deployment, or production claim follows from the presence of those gates.

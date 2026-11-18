@@ -2,6 +2,7 @@ package com.airlinetracker.flightdata.service;
 
 import com.airlinetracker.flightdata.client.FlightAwareClient;
 import com.airlinetracker.flightdata.dto.FlightData;
+import com.airlinetracker.flightdata.exception.SummaryEventUnavailableException;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit Test for FlightDataService - Custom Metrics
@@ -224,6 +226,20 @@ class FlightDataServiceTest {
         assertThat(meterRegistry.find("flight_cache_hits").counter()).isNotNull();
         assertThat(meterRegistry.find("flight_cache_misses").counter()).isNotNull();
         assertThat(meterRegistry.find("flightaware_api_duration").timer()).isNotNull();
+    }
+
+    @Test
+    void wrapsKafkaFailureWhenQueueingSummaryRetry() {
+        FlightData flight = FlightData.builder().faFlightId("UAL123-1").ident("UAL123").build();
+        CompletableFuture<org.springframework.kafka.support.SendResult<String, FlightData>> failedSend =
+                new CompletableFuture<>();
+        failedSend.completeExceptionally(new IllegalStateException("Kafka unavailable"));
+        when(kafkaTemplate.send(anyString(), anyString(), any(FlightData.class))).thenReturn(failedSend);
+
+        assertThatThrownBy(() -> flightDataService.requestSummary(flight))
+                .isInstanceOf(SummaryEventUnavailableException.class)
+                .hasMessage("Summary event could not be delivered")
+                .hasCauseInstanceOf(java.util.concurrent.ExecutionException.class);
     }
 
     @Test

@@ -65,16 +65,17 @@ public class HealthCheckUtil {
      * @param apiGatewayUrl API Gateway base URL
      * @return true if all services are healthy
      */
-    public static boolean waitForAllServices(String apiGatewayUrl) {
+    public static boolean waitForAllServices(String apiGatewayUrl, String eurekaHealthUrl,
+                                             String flightDataHealthUrl, String summaryHealthUrl) {
         log.info("Starting health checks for all services...");
 
         boolean allHealthy = true;
 
         // Check in dependency order
-        allHealthy &= waitForHealthy("Eureka", "http://localhost:8761/actuator/health");
+        allHealthy &= waitForHealthy("Eureka", eurekaHealthUrl);
         allHealthy &= waitForHealthy("API Gateway", apiGatewayUrl + "/actuator/health");
-        allHealthy &= waitForHealthy("FlightData Service", "http://localhost:8081/actuator/health");
-        allHealthy &= waitForHealthy("LLM Summary Service", "http://localhost:8082/actuator/health");
+        allHealthy &= waitForHealthy("FlightData Service", flightDataHealthUrl);
+        allHealthy &= waitForHealthy("LLM Summary Service", summaryHealthUrl);
 
         if (allHealthy) {
             log.info("✅ All services are healthy and ready for testing");

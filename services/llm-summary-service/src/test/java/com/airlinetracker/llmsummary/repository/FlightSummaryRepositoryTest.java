@@ -1,12 +1,12 @@
 package com.airlinetracker.llmsummary.repository;
 
 import com.airlinetracker.llmsummary.entity.FlightSummary;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -27,7 +27,7 @@ class FlightSummaryRepositoryTest {
     private FlightSummaryRepository repository;
 
     @Autowired
-    private TestEntityManager entityManager;
+    private EntityManager entityManager;
 
     private FlightSummary testSummary;
 

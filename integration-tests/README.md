@@ -1,36 +1,15 @@
-# Compose integration suite
+# Integration and recovery tests
 
-The Maven test module exercises the current gateway-to-service flow against PostgreSQL, Redis, Kafka, Eureka, and WireMock. WireMock stands in for FlightAware and OpenAI, so this suite does not need provider credentials or paid calls.
-
-## Scenarios
-
-- Search candidates, retrieve one selected flight ID, request its summary, and retrieve that exact summary.
-- Confirm repeated lookups use the Redis cache.
-- Check provider not-found and provider-error handling.
-- Exercise OpenAI rate-limit recovery.
-
-The suite starts no containers itself. The Compose stack must be running first, and the tests connect to fixed localhost ports. The Compose file binds every published test port to `127.0.0.1`; it uses intentionally simple test credentials and must not be exposed to an untrusted network. Stop any other local stack using those ports before starting this one.
-
-## Run
-
-From the repository root:
+The cross-service Java suite requires the isolated Compose stack described in [RUN_E2E_TESTS.md](RUN_E2E_TESTS.md). Run it from the repository root:
 
 ```powershell
-docker compose -f integration-tests/docker-compose.e2e.yml config --quiet
-docker compose -f integration-tests/docker-compose.e2e.yml up --build -d
+docker compose -f integration-tests/docker-compose.e2e.yml up --build -d --wait --wait-timeout 360
+.\mvnw.cmd -B -ntp -pl integration-tests -am -Pcompose-e2e verify
+docker compose -f integration-tests/docker-compose.e2e.yml down --remove-orphans
 ```
 
-Wait until the services report healthy, then run:
+Compose runs Eureka, gateway, flight-data and summary services, Redis, PostgreSQL, Kafka, and WireMock on an internal network. Provider traffic is routed to WireMock, never to live or paid APIs. The E2E scenarios cover selected-instance lookup, cache reuse, provider failures, and summary rate-limit recovery.
 
-```powershell
-cd integration-tests
-mvn -B -ntp test
-cd ..
-docker compose -f integration-tests/docker-compose.e2e.yml down
-```
+The project also includes a browser journey in `frontend/e2e/` and a Gatling gate in `performance-tests/`. The browser test mocks API responses; the Gatling overlay uses labeled demo fixtures and Redis caching. Targets are cached p95 `<500 ms`, controlled miss p95 `<2 s`, and `>95%` success at 100 concurrent cached requests. These remain targets until reports from a completed run are recorded.
 
-Use `down -v` only if you intend to remove the test database and broker volumes.
-
-## Verification status
-
-This harness was updated to use the candidate, selected-instance, and explicit summary-request routes. Its Compose configuration and Java test compilation can be checked without starting containers. A passing E2E run still requires a working Docker engine; no latency, availability, throughput, coverage, or production-readiness result is claimed here.
+Use `docker compose down` to stop a stack. This file defines no named test volumes, so do not add `-v` unless you intend to remove volumes supplied by a local override.

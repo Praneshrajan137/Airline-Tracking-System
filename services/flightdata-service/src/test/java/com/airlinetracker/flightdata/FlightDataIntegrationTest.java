@@ -9,8 +9,9 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.cache.CacheManager;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -48,14 +49,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * - FlightAware API (WireMock)
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 @Testcontainers
 @EmbeddedKafka(
     partitions = 1,
-    topics = {"flight-data-events"},
-    brokerProperties = {"listeners=PLAINTEXT://localhost:9093", "port=9093"}
+    topics = {"flight-data-events"}
 )
 @TestPropertySource(properties = {
-    "spring.kafka.bootstrap-servers=localhost:9093",
     "kafka.topic.flight-data-events=flight-data-events",
     "eureka.client.enabled=false" // Disable Eureka for tests
 })
@@ -65,7 +65,7 @@ class FlightDataIntegrationTest {
     private TestRestTemplate restTemplate;
 
     @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
+    private CacheManager cacheManager;
 
     private static WireMockServer wireMockServer;
 
@@ -127,8 +127,7 @@ class FlightDataIntegrationTest {
     void shouldCompleteFullFlightDataFlow() throws Exception {
         // Arrange: Clear cache and Kafka queue
         String ident = "UAL123";
-        String cacheKey = "flight-candidates::UAL123";
-        redisTemplate.delete(cacheKey);
+        cacheManager.getCache("flight-candidates").evict(ident);
         kafkaMessages.clear();
 
         // Mock FlightAware API response
@@ -175,7 +174,7 @@ class FlightDataIntegrationTest {
         assertThat(response1.getBody().getAircraftType()).isEqualTo("B738");
 
         // Assert 2: Data is cached in Redis
-        Object cachedData = redisTemplate.opsForValue().get(cacheKey);
+        Object cachedData = cacheManager.getCache("flight-candidates").get(ident);
         assertThat(cachedData).isNotNull();
 
         // Assert 3: Event published to Kafka
@@ -219,7 +218,7 @@ class FlightDataIntegrationTest {
     @Test
     void shouldReturn404_WhenFlightNotFound() {
         // Arrange
-        String ident = "INVALID999";
+        String ident = "ZZZ9999";
         stubFor(get(urlEqualTo("/flights/" + ident))
                 .willReturn(aResponse()
                         .withStatus(404)

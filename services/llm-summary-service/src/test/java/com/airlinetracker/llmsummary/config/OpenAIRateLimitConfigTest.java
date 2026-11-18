@@ -50,4 +50,15 @@ class OpenAIRateLimitConfigTest {
 
         assertThat(limiter.allowRequest()).isTrue();
     }
+
+    @Test
+    void rejectsProviderCallWhenRedisReturnsNoQuotaCount() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        when(redis.execute(any(RedisScript.class), anyList(), anyString())).thenReturn(null);
+        var limiter = new OpenAIRateLimitConfig.RateLimiter(redis, 3, 10, 100, true);
+
+        assertThatThrownBy(limiter::allowRequest)
+                .isInstanceOf(OpenAIRateLimitUnavailableException.class)
+                .hasMessage("OpenAI quota counter returned no result");
+    }
 }

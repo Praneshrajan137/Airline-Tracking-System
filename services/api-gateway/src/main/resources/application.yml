@@ -10,45 +10,47 @@ spring:
       port: ${REDIS_PORT:6379}
   cloud:
     gateway:
-      routes:
-        - id: flight-summary-service-route
-          uri: lb://LLM-SUMMARY-SERVICE
-          predicates:
-            - Path=/api/v1/flight/*/summary/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@addressKeyResolver}"
-                redis-rate-limiter.replenishRate: 1
-                redis-rate-limiter.burstCapacity: 5
-                redis-rate-limiter.requestedTokens: 1
-        - id: flightdata-service-route
-          uri: lb://FLIGHTDATA-SERVICE
-          predicates:
-            - Path=/api/v1/flight/**
-          filters:
-            - name: RequestRateLimiter
-              args:
-                key-resolver: "#{@addressKeyResolver}"
-                redis-rate-limiter.replenishRate: 1
-                redis-rate-limiter.burstCapacity: 5
-                redis-rate-limiter.requestedTokens: 1
-      globalcors:
-        corsConfigurations:
-          '[/**]':
-            allowedOrigins:
-              - http://localhost
-              - http://127.0.0.1
-              - http://localhost:3000
-              - http://localhost:5173
-            allowedMethods:
-              - GET
-              - POST
-              - OPTIONS
-            allowedHeaders:
-              - Content-Type
-            allowCredentials: false
-            maxAge: 3600
+      server:
+        webflux:
+          routes:
+            - id: flight-summary-service-route
+              uri: lb://LLM-SUMMARY-SERVICE
+              predicates:
+                - Path=/api/v1/flight/*/summary/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@addressKeyResolver}"
+                    redis-rate-limiter.replenishRate: 1
+                    redis-rate-limiter.burstCapacity: 5
+                    redis-rate-limiter.requestedTokens: 1
+            - id: flightdata-service-route
+              uri: lb://FLIGHTDATA-SERVICE
+              predicates:
+                - Path=/api/v1/flight/**
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@addressKeyResolver}"
+                    redis-rate-limiter.replenishRate: 1
+                    redis-rate-limiter.burstCapacity: ${GATEWAY_FLIGHT_BURST_CAPACITY:100}
+                    redis-rate-limiter.requestedTokens: 1
+          globalcors:
+            corsConfigurations:
+              '[/**]':
+                allowedOrigins:
+                  - http://localhost
+                  - http://127.0.0.1
+                  - http://localhost:3000
+                  - http://localhost:5173
+                allowedMethods:
+                  - GET
+                  - POST
+                  - OPTIONS
+                allowedHeaders:
+                  - Content-Type
+                allowCredentials: false
+                maxAge: 3600
 
 eureka:
   client:

@@ -1,6 +1,6 @@
 # Product requirements: Airline Tracker
 
-**Status:** academic and portfolio scope, updated 2026-11-17. This document describes implemented behavior separately from product assumptions and unverified operating targets.
+**Status:** academic and portfolio scope, updated 2026-11-18. This document describes implemented behavior separately from product assumptions and unverified operating targets.
 
 ## Purpose and audience
 
@@ -63,6 +63,16 @@ The one implemented distinction worth evaluating is explicit selection when a fl
 | Distinct value versus leaders | Comparative usability study and current feature audit | Unknown; do not claim novelty or superiority. |
 | p95 <500 ms cached; controlled miss <2 s; >95% success at 100 concurrent requests | Reproducible Gatling run against a started stack, including collected report and environment | Target only; not measured. |
 | Deployable and recoverable in a real partner environment | Clean install, secrets, TLS, backup/restore, outage, and security review | Unverified; local compose is a portfolio demo. |
+
+The five-session study materials are in [TRAVELER-RESEARCH.md](TRAVELER-RESEARCH.md). The protocol is ready; recruitment and all five sessions remain pending. No participant contact or research findings are represented here.
+
+## Technology baseline and verification gates
+
+- Java 25 LTS, Spring Boot 4.1.2, and Spring Cloud 2025.1.2 are the project baseline. Maven 3.9.16 is pinned by the root wrapper.
+- The Maven reactor builds all four services, the Compose integration module, and the isolated Gatling module.
+- Compose E2E uses WireMock provider endpoints on an internal network. The Gatling overlay uses labeled deterministic fixtures. Browser E2E intercepts API responses with test fixtures.
+- Performance acceptance targets are cached lookup p95 `<500 ms`, controlled cache-miss p95 `<2 s`, and success `>95%` with 100 concurrent cached lookups. They remain targets until a report from a completed run is recorded.
+- The gateway flight lookup burst is configurable with a default of 100. Its refill remains 1 request/second; the summary-route burst remains 5. FlightAware's existing application quotas are unchanged.
 
 ## Non-goals
 
